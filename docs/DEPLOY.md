@@ -102,3 +102,49 @@ secreto). Si sigue apareciendo el error, causas posibles:
 - **SESSION_SECRET ≠ GHOSTY_PARTNER_SECRET**: son dos secretos distintos con
   propósitos distintos. El primero cifra las cookies locales; el segundo firma el
   handshake con el IdP.
+
+---
+
+## Deploy real (2026-07-28): caja propia en el host OVH
+
+Ghosty Tasks vive en **https://tasks.ghosty.studio**, en una caja del host OVH
+(template `node`, **1 vCPU / 512 MB**, `sb_c4cec06e-32ac-4d93-b72e-0f21e853ad38`).
+La caja **duerme por inactividad** (`suspendOnIdle`, TTL 900s) y despierta sola
+con el primer request público — el proxy del host hace `acquire` antes de rutear.
+
+- App en `/app/ghosty-tasks/.output`, unit systemd `ghosty-tasks`, puerto 3001.
+- Env en `/app/ghosty-tasks/.env` (0600). ⚠️ `ExecStart` usa `/usr/local/bin/node`:
+  en ese template no existe `/usr/bin/node` y systemd falla con 203/EXEC.
+- Ingress: puerto 3001 expuesto + `domain:tasks.ghosty.studio` registrado en la
+  caja; Caddy resuelve el host y saca el cert con on-demand TLS.
+- DNS: A `tasks.ghosty.studio` → 54.38.94.14 (Route53).
+
+**Deploy hoy:** `./scripts/deploy_tasks.sh` (build local → push del `.output` por
+la API del host → restart del unit). ~20s.
+
+### La DB NO es EasyBits
+
+La cuenta topó las **10 DBs del plan Mega**, así que `src/dbq.server.ts` habla el
+protocolo pipeline del **sqld self-host** del propio bare metal
+(`http://172.20.0.1:8100/v2/pipeline`, header `x-namespace`), namespace
+`ghostytasks`. Es el mismo sqld que sirve a Ghosty Teams. El contrato de salida no
+cambió (filas `{ [col]: string|null }`), así que ningún caller se tocó.
+
+Vars vivas: `SQLD_URL`, `SQLD_NAMESPACE`, `SQLD_AUTH_TOKEN` (hoy vacío: el sqld no
+pide token en la red del bridge). Ya NO se usan `EASYBITS_*`.
+
+### CI — falta un paso que necesita admin del repo
+
+`.github/workflows/deploy-ovh.yml` está listo y reusa la caja `ci-runner` de
+ghosty-studio (hibernada entre deploys). Para encenderlo hace falta ser **admin de
+este repo**:
+
+1. Registrar en esa caja un runner de ESTE repo con labels
+   `[self-hosted, ovh, ghosty]` — un runner self-hosted pertenece a un repo, y el
+   de ghosty-studio no toma estos jobs.
+2. Webhook **Workflow jobs** → `https://www.ghosty.studio/api/ci/runner`, con el
+   mismo secreto que usa ghosty-studio. Sin él la caja no despierta y el job se
+   queda encolado. (El waker filtra por labels, no por repo, así que no hay que
+   cambiarle nada.)
+
+Hasta entonces el deploy es el script.
