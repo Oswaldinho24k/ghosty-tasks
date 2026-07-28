@@ -44,3 +44,5 @@ EOF
 echo "▸ verifica público"
 curl -s -o /dev/null -w "  https=%{http_code}\n" --max-time 25 https://tasks.ghosty.studio/login || true
 echo "✓ deploy listo."
+
+# (el CI verifica que este script y el workflow no se desincronicen)
