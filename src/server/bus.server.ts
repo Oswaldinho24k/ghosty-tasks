@@ -22,7 +22,9 @@ export type WwEvent =
   | { t: "goal:updated"; id: number; project_id: number }
   | { t: "goal:deleted"; id: number; project_id: number }
   | { t: "presence"; sub: string; name: string; status: "online" | "offline" }
-  | { t: "presence:init"; online: string[] };
+  | { t: "presence:init"; online: string[] }
+  | { t: "agent:chunk"; turnId: string; value: string }
+  | { t: "agent:done"; turnId: string; value: string; created_tasks: Array<{ id: number; title: string; column_id: number }> };
 
 type Listener = (ev: WwEvent) => void;
 type Client = { channels: Set<string>; listener: Listener; sub: string };

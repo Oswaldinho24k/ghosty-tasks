@@ -77,9 +77,9 @@ export function CommandPalette({
 
   function selectItem(item: Item) {
     if (item.kind === 'project') {
-      navigate({ to: '/p/$slug/board', params: { slug: item.slug } })
+      navigate({ to: '/p/$slug/board', params: { slug: item.slug }, search: { q: undefined, priority: undefined, assignee: undefined } })
     } else if (item.kind === 'view') {
-      navigate({ to: `/p/$slug/${item.view}` as '/p/$slug/board', params: { slug } })
+      navigate({ to: `/p/$slug/${item.view}` as '/p/$slug/board', params: { slug }, search: { q: undefined, priority: undefined, assignee: undefined } })
     } else if (item.kind === 'task') {
       onTaskClick(item.id)
     }

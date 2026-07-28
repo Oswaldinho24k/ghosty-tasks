@@ -7,7 +7,7 @@ import { THEME_BOOT, applyTheme, getTheme, watchSystemScheme } from '../utils/th
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
-    if (location.pathname === '/login' || location.pathname.startsWith('/join')) {
+    if (location.pathname === '/login' || location.pathname.startsWith('/join') || location.pathname === '/dev-login') {
       return { user: null }
     }
     const user = await cachedMe()

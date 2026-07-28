@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, notFound, redirect } from '@tanstack/react-router'
-import { useEffect, useState, useCallback } from 'react'
-import { Settings, Menu } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Settings, Menu, Plus, Sparkles } from 'lucide-react'
 import { getProjectShellFn, listProjectsFn } from '../server/projects'
 import type { Task, Column, Project } from '../server/projects'
 import { getAllTaskLabelsFn } from '../server/labels'
@@ -11,6 +11,8 @@ import { TaskDetailPanel } from '../components/TaskDetailPanel'
 import { ProjectSettingsPanel } from '../components/ProjectSettingsPanel'
 import { CommandPalette } from '../components/CommandPalette'
 import { SettingsModal } from '../components/SettingsModal'
+import { CreateTaskModal } from '../components/CreateTaskModal'
+import { AgentDrawer } from '../components/AgentDrawer'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useLiveStream } from '../hooks/useLiveStream'
 import type { WwEvent } from '../server/bus.server'
@@ -23,7 +25,7 @@ export const Route = createFileRoute('/p/$slug')({
       listProjectsFn(),
     ])
     if (!shell) {
-      if (projects.length > 0) throw redirect({ to: '/p/$slug/board', params: { slug: projects[0].slug } })
+      if (projects.length > 0) throw redirect({ to: '/p/$slug/board', params: { slug: projects[0].slug }, search: { q: undefined, priority: undefined, assignee: undefined } })
       throw notFound()
     }
     return { shell, projects }
@@ -46,6 +48,9 @@ function ProjectShell() {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [createTaskOpen, setCreateTaskOpen] = useState(false)
+  const [agentOpen, setAgentOpen] = useState(false)
+  const agentEventCallback = useRef<((ev: WwEvent) => void) | null>(null)
 
   const currentView = typeof window !== 'undefined'
     ? window.location.pathname.split('/').pop() ?? 'board'
@@ -136,6 +141,8 @@ function ProjectShell() {
           const map = new Map(prev.map((c) => [c.id, c]))
           return ev.ordered_ids.map((id, i) => ({ ...map.get(id)!, position: i })).filter(Boolean)
         })
+      } else if (ev.t === 'agent:chunk' || ev.t === 'agent:done') {
+        agentEventCallback.current?.(ev)
       }
     },
     onReconnect: reloadShell,
@@ -208,7 +215,7 @@ function ProjectShell() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex -space-x-1">
+            <div className="hidden sm:flex -space-x-1">
               {members.slice(0, 5).map((m) => (
                 <img
                   key={m.sub}
@@ -219,6 +226,26 @@ function ProjectShell() {
                 />
               ))}
             </div>
+            <button
+              onClick={() => setCreateTaskOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-brand-fg transition hover:brightness-110"
+              title="Nueva tarea"
+            >
+              <Plus size={13} />
+              <span className="hidden sm:inline">Nueva tarea</span>
+            </button>
+            <button
+              onClick={() => setAgentOpen((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                agentOpen
+                  ? 'border-brand bg-brand/10 text-brand'
+                  : 'border-border text-muted hover:bg-surface-3 hover:text-ink'
+              }`}
+              title="Ghosty AI"
+            >
+              <Sparkles size={13} />
+              <span className="hidden sm:inline">Ghosty</span>
+            </button>
             <button
               onClick={() => setSettingsOpen(true)}
               className="rounded-lg p-1.5 text-muted hover:bg-surface-3 hover:text-ink transition-colors"
@@ -297,6 +324,30 @@ function ProjectShell() {
         open={settingsModalOpen}
         onClose={() => setSettingsModalOpen(false)}
       />
+
+      {/* Create task modal (global) */}
+      <CreateTaskModal
+        open={createTaskOpen}
+        onClose={() => setCreateTaskOpen(false)}
+        projectId={initial.project.id}
+        columns={columns}
+        onCreated={(task) => setTasks((prev) => {
+          if (prev.find((t) => t.id === task.id)) return prev
+          return [...prev, task]
+        })}
+      />
+
+      {/* Ghosty AI drawer */}
+      <AnimatePresence>
+        {agentOpen && (
+          <AgentDrawer
+            onClose={() => setAgentOpen(false)}
+            projectId={initial.project.id}
+            columns={columns}
+            onRegisterEventCallback={(cb) => { agentEventCallback.current = cb as ((ev: WwEvent) => void) | null }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

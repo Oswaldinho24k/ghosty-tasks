@@ -1,16 +1,38 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { KanbanBoard } from '../components/KanbanBoard'
-import { FilterBar, type Filters, EMPTY_FILTERS, applyFilters } from '../components/FilterBar'
+import { FilterBar, type Filters, applyFilters } from '../components/FilterBar'
 import { useProject } from '../utils/projectContext'
 
 export const Route = createFileRoute('/p/$slug/board')({
+  validateSearch: (s: Record<string, unknown>) => ({
+    q: typeof s.q === 'string' && s.q ? s.q : undefined,
+    priority: typeof s.priority === 'string' && s.priority ? s.priority : undefined,
+    assignee: typeof s.assignee === 'string' && s.assignee ? s.assignee : undefined,
+  }),
   component: BoardView,
 })
 
 function BoardView() {
   const ctx = useProject()
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
+  const search = Route.useSearch()
+  const navigate = useNavigate({ from: Route.fullPath })
+
+  const filters: Filters = {
+    q: search.q ?? '',
+    priorities: search.priority ? search.priority.split(',') : [],
+    assignees: search.assignee ? search.assignee.split(',') : [],
+  }
+
+  function setFilters(f: Filters) {
+    navigate({
+      search: {
+        q: f.q || undefined,
+        priority: f.priorities.length ? f.priorities.join(',') : undefined,
+        assignee: f.assignees.length ? f.assignees.join(',') : undefined,
+      },
+      replace: true,
+    })
+  }
 
   const visibleTasks = applyFilters(ctx.tasks, filters)
 

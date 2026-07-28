@@ -1,12 +1,16 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { PriorityBadge } from '../components/PriorityBadge'
 import { MemberAvatar } from '../components/MemberAvatar'
-import { FilterBar, type Filters, EMPTY_FILTERS, applyFilters } from '../components/FilterBar'
+import { FilterBar, type Filters, applyFilters } from '../components/FilterBar'
 import { Check, Calendar } from 'lucide-react'
 import { useProject } from '../utils/projectContext'
 
 export const Route = createFileRoute('/p/$slug/list')({
+  validateSearch: (s: Record<string, unknown>) => ({
+    q: typeof s.q === 'string' && s.q ? s.q : undefined,
+    priority: typeof s.priority === 'string' && s.priority ? s.priority : undefined,
+    assignee: typeof s.assignee === 'string' && s.assignee ? s.assignee : undefined,
+  }),
   component: ListView,
 })
 
@@ -14,7 +18,25 @@ const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, 
 
 function ListView() {
   const { tasks, columns, members, onTaskClick } = useProject()
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
+  const search = Route.useSearch()
+  const navigate = useNavigate({ from: Route.fullPath })
+
+  const filters: Filters = {
+    q: search.q ?? '',
+    priorities: search.priority ? search.priority.split(',') : [],
+    assignees: search.assignee ? search.assignee.split(',') : [],
+  }
+
+  function setFilters(f: Filters) {
+    navigate({
+      search: {
+        q: f.q || undefined,
+        priority: f.priorities.length ? f.priorities.join(',') : undefined,
+        assignee: f.assignees.length ? f.assignees.join(',') : undefined,
+      },
+      replace: true,
+    })
+  }
 
   const colMap = new Map(columns.map((c) => [c.id, c]))
   const filtered = applyFilters(tasks, filters)
