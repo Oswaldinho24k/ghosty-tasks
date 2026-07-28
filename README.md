@@ -30,13 +30,30 @@ equipo; sin enterprise pricing ni tableros de configuración interminable.
 ## Cómo funciona
 
 - **[ghosty.studio](https://www.ghosty.studio)** → identidad (login con Google).
-  La app redirige al IdP y recibe la identidad firmada de vuelta.
-- **[EasyBits](https://easybits.cloud)** → base de datos. Cliente HTTP simple:
-  `POST /api/v2/databases/:dbId/query`. Sin ORM, sin migraciones manuales.
+  La app redirige al IdP y recibe la identidad firmada de vuelta. Mismo handshake
+  que usa Ghosty Teams.
+- **sqld (libsql-server)** → base de datos, self-host en el mismo bare metal.
+  Cliente HTTP directo al protocolo pipeline, namespace `ghostytasks`. Sin ORM y
+  sin migraciones manuales: `ensureSchema()` crea las tablas `gw_*` en el primer
+  login. (Antes era EasyBits; se movió al topar el límite de DBs del plan.)
 - **La app** → [TanStack Start](https://tanstack.com/start) (React 19 SSR) +
-  Tailwind 4. Compute stateless; estado durable en EasyBits.
+  Tailwind 4. Compute stateless; el estado durable vive en el sqld.
 
-Detalle en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Detalle en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) y
+[`docs/DEPLOY.md`](docs/DEPLOY.md).
+
+## Producción
+
+Vive en **[tasks.ghosty.studio](https://tasks.ghosty.studio)**, en una caja propia
+del host OVH (1 vCPU / 512 MB). La caja **duerme por inactividad** y despierta sola
+con el primer request — no hay nada encendido esperando visitas.
+
+Deploy: **push a `main`**. El pipeline
+([`.github/workflows/deploy-ovh.yml`](.github/workflows/deploy-ovh.yml)) corre en
+un runner self-hosted que también está hibernado entre deploys; un sondeo del lado
+del host lo despierta al ver la cola. De punta a punta, con todo dormido: **~95s**.
+
+Para deployar a mano (break-glass): `./scripts/deploy_tasks.sh`.
 
 ## Local
 

@@ -133,19 +133,30 @@ cambió (filas `{ [col]: string|null }`), así que ningún caller se tocó.
 Vars vivas: `SQLD_URL`, `SQLD_NAMESPACE`, `SQLD_AUTH_TOKEN` (hoy vacío: el sqld no
 pide token en la red del bridge). Ya NO se usan `EASYBITS_*`.
 
-### CI — falta un paso que necesita admin del repo
+### CI — push a `main` deploya (activo desde 2026-07-28)
 
-`.github/workflows/deploy-ovh.yml` está listo y reusa la caja `ci-runner` de
-ghosty-studio (hibernada entre deploys). Para encenderlo hace falta ser **admin de
-este repo**:
+`.github/workflows/deploy-ovh.yml` corre en la MISMA caja `ci-runner` que usa
+ghosty-studio, con un **segundo runner** registrado a este repo: servicio
+`actions-runner-tasks`, dir `/opt/actions-runner-tasks`, work `/opt/_work-tasks`,
+labels `[self-hosted, ovh, ghosty]`, nombre `ci-ovh-tasks`. Un runner self-hosted
+pertenece a UN repo, por eso no basta con el de ghosty-studio.
 
-1. Registrar en esa caja un runner de ESTE repo con labels
-   `[self-hosted, ovh, ghosty]` — un runner self-hosted pertenece a un repo, y el
-   de ghosty-studio no toma estos jobs.
-2. Webhook **Workflow jobs** → `https://www.ghosty.studio/api/ci/runner`, con el
-   mismo secreto que usa ghosty-studio. Sin él la caja no despierta y el job se
-   queda encolado. (El waker filtra por labels, no por repo, así que no hay que
-   cambiarle nada.)
+Medido con todo dormido: **~95s** desde el push hasta el sitio actualizado.
 
-Hasta entonces el deploy es el script.
-# ci: prueba de despertar automático 2026-07-28T21:20:11Z
+**Cómo despierta la caja, sin webhook.** ghosty-studio usa el webhook `workflow_job`
+→ `/api/ci/runner`; darlo de alta aquí necesita un admin del repo. Como el repo es
+público, la cola se ve sin credenciales: el timer `gs-tasks-ci-waker` del host
+(cada 90s, `/usr/local/bin/gs-tasks-ci-waker.sh`) sondea los runs encolados y, si
+los hay, resume la caja. No hiberna: de eso se encarga el `suspendOnIdle` (900s).
+
+⚠️ **El waker además REINICIA el runner**, y no es opcional: tras un suspend/resume
+el `Runner.Listener` vuelve con su long-poll muerto — sigue "active" dentro de la
+caja pero GitHub lo ve OFFLINE y el job se encola para siempre. Solo reinicia
+cuando no hay runs `in_progress`, para no matar un deploy en vuelo.
+
+⚠️ **Si la caja `ci-runner` se recrea** (el janitor recicla lo que lleve 72h
+hibernado), el waker de ghosty-studio solo re-registra SU runner: el de este repo
+se pierde y hay que volver a registrarlo con un token nuevo
+(Settings → Actions → Runners → New self-hosted runner, lo emite un admin).
+
+**Break-glass:** `./scripts/deploy_tasks.sh` desde la laptop.
