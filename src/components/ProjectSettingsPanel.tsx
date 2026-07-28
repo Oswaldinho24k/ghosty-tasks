@@ -7,6 +7,7 @@ import { updateProjectFn } from '../server/projects'
 import type { Project } from '../server/projects'
 import { removeProjectMemberFn } from '../server/members'
 import { MemberAvatar } from './MemberAvatar'
+import { teamsUrl } from '../utils/teams'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 
@@ -207,14 +208,14 @@ export function ProjectSettingsPanel({
           <section>
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Equipo</p>
             <p className="mb-3 text-sm text-muted">
-              Los miembros son los del workspace. Se agregan en Ghosty Teams.
+              Los miembros son los del equipo en Ghosty Teams. Se agregan ahí, en Ajustes → Invitar miembros.
             </p>
             <a
-              href="https://www.ghosty.studio/app"
+              href={teamsUrl()}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-ink hover:bg-surface-2 transition-colors"
             >
               <Link2 size={14} />
-              Gestionar el equipo
+              Abrir el equipo en Teams
             </a>
           </section>
         )}

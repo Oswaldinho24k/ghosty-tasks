@@ -3,6 +3,7 @@ import { me } from '../server/auth'
 import { listWorkspaceUsersFn } from '../server/members'
 import { Users, Link2, Crown, Shield } from 'lucide-react'
 import { MemberAvatar } from '../components/MemberAvatar'
+import { teamsUrl } from '../utils/teams'
 
 export const Route = createFileRoute('/settings')({
   loader: async () => {
@@ -83,14 +84,14 @@ function Settings() {
         </div>
         <p className="text-sm text-muted mb-3">
           El equipo es el mismo que en Ghosty Teams: quien entra ahí entra aquí. Se
-          invita desde el workspace, no desde las tareas.
+          invita desde el workspace (Ajustes → Invitar miembros), no desde las tareas.
         </p>
         <a
-          href="https://www.ghosty.studio/app"
+          href={teamsUrl()}
           className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-fg hover:brightness-110 transition-all"
         >
           <Users size={14} />
-          Gestionar el equipo
+          Abrir el equipo en Teams
         </a>
       </section>
 

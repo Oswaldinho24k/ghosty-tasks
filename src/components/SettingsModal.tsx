@@ -9,6 +9,7 @@ import {
 } from '../utils/theme'
 import { registerModalEsc } from '../utils/modal-esc'
 import { useSyncExternalStore } from 'react'
+import { teamsUrl } from '../utils/teams'
 
 type Tab = 'perfil' | 'apariencia' | 'workspace'
 type UserInfo = Awaited<ReturnType<typeof me>>
@@ -278,14 +279,14 @@ export function SettingsModal({
                         <div>
                           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">Equipo</p>
                           <p className="mb-2 text-sm text-muted">
-                            Los miembros son los del workspace; se agregan en Ghosty Teams.
+                            Son los del equipo en Ghosty Teams: se agregan ahí, en Ajustes → Invitar miembros.
                           </p>
                           <a
-                            href="https://www.ghosty.studio/app"
+                            href={teamsUrl()}
                             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-ink hover:bg-surface-2 transition-colors"
                           >
                             <Link2 size={14} />
-                            Gestionar el equipo
+                            Abrir el equipo en Teams
                           </a>
                         </div>
                       )}
