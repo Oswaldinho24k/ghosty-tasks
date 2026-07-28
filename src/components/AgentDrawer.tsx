@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
 import { X, Send, Sparkles, CheckSquare2 } from 'lucide-react'
-import { askAgentFn } from '../server/agent.server'
+import { askAgentFn } from '../server/agent'
 import { registerModalEsc } from '../utils/modal-esc'
 import type { WwEvent } from '../server/bus.server'
 import type { Column } from '../server/projects'
