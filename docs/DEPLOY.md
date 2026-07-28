@@ -148,3 +148,4 @@ este repo**:
    cambiarle nada.)
 
 Hasta entonces el deploy es el script.
+# ci: prueba de despertar automático 2026-07-28T21:20:11Z
