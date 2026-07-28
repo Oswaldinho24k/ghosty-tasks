@@ -19,6 +19,7 @@ import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as PSlugListRouteImport } from './routes/p.$slug.list'
 import { Route as PSlugGoalsRouteImport } from './routes/p.$slug.goals'
 import { Route as PSlugBoardRouteImport } from './routes/p.$slug.board'
+import { Route as ApiAvatarIdRouteImport } from './routes/api.avatar.$id'
 
 const SetupRoute = SetupRouteImport.update({
   id: '/setup',
@@ -70,6 +71,11 @@ const PSlugBoardRoute = PSlugBoardRouteImport.update({
   path: '/board',
   getParentRoute: () => PSlugRoute,
 } as any)
+const ApiAvatarIdRoute = ApiAvatarIdRouteImport.update({
+  id: '/api/avatar/$id',
+  path: '/api/avatar/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
   '/p/$slug': typeof PSlugRouteWithChildren
+  '/api/avatar/$id': typeof ApiAvatarIdRoute
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
   '/p/$slug/list': typeof PSlugListRoute
@@ -91,6 +98,7 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
   '/p/$slug': typeof PSlugRouteWithChildren
+  '/api/avatar/$id': typeof ApiAvatarIdRoute
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
   '/p/$slug/list': typeof PSlugListRoute
@@ -104,6 +112,7 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
   '/p/$slug': typeof PSlugRouteWithChildren
+  '/api/avatar/$id': typeof ApiAvatarIdRoute
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
   '/p/$slug/list': typeof PSlugListRoute
@@ -118,6 +127,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/api/stream'
     | '/p/$slug'
+    | '/api/avatar/$id'
     | '/p/$slug/board'
     | '/p/$slug/goals'
     | '/p/$slug/list'
@@ -130,6 +140,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/api/stream'
     | '/p/$slug'
+    | '/api/avatar/$id'
     | '/p/$slug/board'
     | '/p/$slug/goals'
     | '/p/$slug/list'
@@ -142,6 +153,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/api/stream'
     | '/p/$slug'
+    | '/api/avatar/$id'
     | '/p/$slug/board'
     | '/p/$slug/goals'
     | '/p/$slug/list'
@@ -155,6 +167,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   ApiStreamRoute: typeof ApiStreamRoute
   PSlugRoute: typeof PSlugRouteWithChildren
+  ApiAvatarIdRoute: typeof ApiAvatarIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -229,6 +242,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PSlugBoardRouteImport
       parentRoute: typeof PSlugRoute
     }
+    '/api/avatar/$id': {
+      id: '/api/avatar/$id'
+      path: '/api/avatar/$id'
+      fullPath: '/api/avatar/$id'
+      preLoaderRoute: typeof ApiAvatarIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -254,16 +274,8 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   ApiStreamRoute: ApiStreamRoute,
   PSlugRoute: PSlugRouteWithChildren,
+  ApiAvatarIdRoute: ApiAvatarIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

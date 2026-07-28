@@ -16,6 +16,15 @@ export type SessionUser = {
   handle: string;
 };
 
+// El avatar del perfil compartido es una ruta de Teams (`/api/attachment/<id>`), que
+// aquí no existe. Se reescribe al proxy propio, que la pide firmada — ver
+// routes/api.avatar.$id.ts.
+export function localAvatar(av: string | null | undefined): string {
+  const v = av ?? "";
+  const m = v.match(/^\/api\/attachment\/(.+)$/);
+  return m ? `/api/avatar/${m[1]}` : v;
+}
+
 function slugHandle(s: string): string {
   return (
     s
@@ -64,7 +73,7 @@ export async function upsertUser(
     return {
       ...id,
       name: (existing[0].name as string) || id.name,
-      avatar: (existing[0].avatar as string) || id.avatar,
+      avatar: localAvatar(existing[0].avatar as string) || id.avatar,
       isOwner,
       handle,
     };
@@ -119,7 +128,7 @@ export async function listWorkspaceMembers(): Promise<WorkspaceMember[]> {
         // por su correo en vez de como una fila anónima.
         name: (p?.name as string) || m.email || m.sub.slice(0, 8),
         email: (p?.email as string) || m.email,
-        avatar: (p?.avatar as string) ?? "",
+        avatar: localAvatar(p?.avatar as string),
         isOwner: m.role === "OWNER",
       };
     })

@@ -12,7 +12,12 @@ async function session() {
 
 export const me = createServerFn({ method: "GET" }).handler(async () => {
   const s = await session();
-  return s.data.user ?? null;
+  const u = s.data.user;
+  if (!u) return null;
+  // Las sesiones creadas antes del proxy de avatares guardaron la ruta de Teams, que
+  // aquí da 404. Se normaliza al leer para no obligar a nadie a re-loguearse.
+  const { localAvatar } = await import("../users.server");
+  return { ...u, avatar: localAvatar(u.avatar) };
 });
 
 type Me = Awaited<ReturnType<typeof me>>;
