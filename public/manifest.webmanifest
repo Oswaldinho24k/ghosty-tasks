@@ -1,0 +1,14 @@
+{
+  "name": "Ghosty Tasks",
+  "short_name": "Ghosty Tasks",
+  "description": "Gestión de tareas sin burocracia",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14121a",
+  "theme_color": "#7c3aed",
+  "icons": [
+    { "src": "/ghosty.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/ghosty-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/ghosty-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ]
+}

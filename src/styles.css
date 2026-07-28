@@ -1,0 +1,77 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  --color-brand: #7c3aed;
+  --color-brand-2: #a78bfa;
+  --color-brand-fg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f6f5fb;
+  --color-surface-3: #ecebf6;
+  --color-border: #e4e2f0;
+  --color-ink: #1c1b22;
+  --color-muted: #6b6975;
+}
+
+:root[data-theme="dark"] {
+  --color-brand: #a78bfa;
+  --color-brand-2: #7c3aed;
+  --color-brand-fg: #14121a;
+  --color-surface: #14121a;
+  --color-surface-2: #1c1a25;
+  --color-surface-3: #272536;
+  --color-border: #302d3f;
+  --color-ink: #f2f1f7;
+  --color-muted: #9995ad;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --color-brand: #a78bfa;
+    --color-brand-2: #7c3aed;
+    --color-brand-fg: #14121a;
+    --color-surface: #14121a;
+    --color-surface-2: #1c1a25;
+    --color-surface-3: #272536;
+    --color-border: #302d3f;
+    --color-ink: #f2f1f7;
+    --color-muted: #9995ad;
+  }
+}
+
+* { box-sizing: border-box; }
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+label[for],
+a[href],
+summary {
+  cursor: pointer;
+}
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+html, body, #app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+html, body {
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+
+/* Scrollbar sutil */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }

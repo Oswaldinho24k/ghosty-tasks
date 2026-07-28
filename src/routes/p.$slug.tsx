@@ -1,0 +1,302 @@
+import { createFileRoute, Outlet, notFound, redirect } from '@tanstack/react-router'
+import { useEffect, useState, useCallback } from 'react'
+import { Settings, Menu } from 'lucide-react'
+import { getProjectShellFn, listProjectsFn } from '../server/projects'
+import type { Task, Column, Project } from '../server/projects'
+import { getAllTaskLabelsFn } from '../server/labels'
+import type { Label } from '../server/labels'
+import { ProjectSidebar } from '../components/ProjectSidebar'
+import { AnimatePresence, motion } from 'motion/react'
+import { TaskDetailPanel } from '../components/TaskDetailPanel'
+import { ProjectSettingsPanel } from '../components/ProjectSettingsPanel'
+import { CommandPalette } from '../components/CommandPalette'
+import { SettingsModal } from '../components/SettingsModal'
+import { ErrorBoundary } from '../components/ErrorBoundary'
+import { useLiveStream } from '../hooks/useLiveStream'
+import type { WwEvent } from '../server/bus.server'
+import { ProjectContext } from '../utils/projectContext'
+
+export const Route = createFileRoute('/p/$slug')({
+  loader: async ({ params }) => {
+    const [shell, projects] = await Promise.all([
+      getProjectShellFn({ data: { slug: params.slug } }).catch(() => null),
+      listProjectsFn(),
+    ])
+    if (!shell) {
+      if (projects.length > 0) throw redirect({ to: '/p/$slug/board', params: { slug: projects[0].slug } })
+      throw notFound()
+    }
+    return { shell, projects }
+  },
+  component: ProjectShell,
+})
+
+function ProjectShell() {
+  const { shell: initial, projects: initialProjects } = Route.useLoaderData()
+  const { slug } = Route.useParams()
+
+  const [projects, setProjects] = useState(initialProjects)
+  const [project, setProject] = useState(initial.project)
+  const [members, setMembers] = useState(initial.members)
+  const [columns, setColumns] = useState(initial.columns)
+  const [tasks, setTasks] = useState(initial.tasks)
+  const [taskLabels, setTaskLabels] = useState<Record<number, Label[]>>({})
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const currentView = typeof window !== 'undefined'
+    ? window.location.pathname.split('/').pop() ?? 'board'
+    : 'board'
+
+  const currentUser = members.find((m) => m.sub === initial.currentSub)
+
+  useEffect(() => {
+    getAllTaskLabelsFn({ data: { project_id: initial.project.id } })
+      .then(setTaskLabels)
+      .catch(() => {})
+  }, [initial.project.id])
+
+  // ⌘K command palette
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  // Refresh shell data on SSE reconnect
+  const reloadShell = useCallback(async () => {
+    try {
+      const shell = await getProjectShellFn({ data: { slug } })
+      setProject(shell.project)
+      setMembers(shell.members)
+      setColumns(shell.columns)
+      setTasks(shell.tasks)
+    } catch {}
+  }, [slug])
+
+  useLiveStream({
+    onEvent: (ev: WwEvent) => {
+      if (ev.t === 'task:created') {
+        if (ev.task.project_id === initial.project.id) {
+          setTasks((prev) => {
+            if (prev.find((t) => t.id === ev.task.id)) return prev
+            return [...prev, {
+              id: ev.task.id,
+              project_id: ev.task.project_id,
+              column_id: ev.task.column_id,
+              parent_id: null,
+              title: ev.task.title,
+              description: null,
+              status: ev.task.status,
+              priority: ev.task.priority,
+              assignee_sub: ev.task.assignee_sub,
+              due_date: null,
+              position: ev.task.position,
+              created_by: '',
+              created_at: 0,
+              updated_at: 0,
+            }]
+          })
+        }
+      } else if (ev.t === 'task:updated') {
+        if (ev.patch.labels !== undefined) {
+          const labels = ev.patch.labels as Label[]
+          setTaskLabels((prev) => ({ ...prev, [ev.id]: labels }))
+          const { labels: _l, ...rest } = ev.patch
+          if (Object.keys(rest).length > 0) {
+            setTasks((prev) => prev.map((t) => t.id === ev.id ? { ...t, ...rest } as Task : t))
+          }
+        } else {
+          setTasks((prev) => prev.map((t) => t.id === ev.id ? { ...t, ...ev.patch } as Task : t))
+        }
+      } else if (ev.t === 'task:moved') {
+        setTasks((prev) => prev.map((t) => t.id === ev.id ? { ...t, column_id: ev.column_id, position: ev.position } : t))
+      } else if (ev.t === 'task:deleted') {
+        setTasks((prev) => prev.filter((t) => t.id !== ev.id))
+        setTaskLabels((prev) => { const n = { ...prev }; delete n[ev.id]; return n })
+      } else if (ev.t === 'column:created') {
+        setColumns((prev) => {
+          if (prev.find((c) => c.id === ev.column.id)) return prev
+          return [...prev, ev.column as Column]
+        })
+      } else if (ev.t === 'column:updated') {
+        setColumns((prev) => prev.map((c) => c.id === ev.id ? { ...c, ...ev.patch } as Column : c))
+      } else if (ev.t === 'column:deleted') {
+        setColumns((prev) => prev.filter((c) => c.id !== ev.id))
+      } else if (ev.t === 'columns:reordered') {
+        setColumns((prev) => {
+          const map = new Map(prev.map((c) => [c.id, c]))
+          return ev.ordered_ids.map((id, i) => ({ ...map.get(id)!, position: i })).filter(Boolean)
+        })
+      }
+    },
+    onReconnect: reloadShell,
+  })
+
+  const sidebar = (
+    <ProjectSidebar
+      projects={projects}
+      currentSlug={slug}
+      currentView={currentView}
+      user={{
+        name: currentUser?.name ?? initial.currentSub,
+        avatar: currentUser?.avatar ?? '',
+        handle: currentUser?.handle ?? '',
+      }}
+      onProjectCreated={(p) => setProjects((prev) => [...prev, p])}
+      onClose={() => setSidebarOpen(false)}
+      onSettingsOpen={() => setSettingsModalOpen(true)}
+    />
+  )
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-surface text-ink">
+      {/* Desktop sidebar */}
+      <div className="hidden md:flex">
+        {sidebar}
+      </div>
+
+      {/* Mobile sidebar drawer */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-black/50 md:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className="fixed inset-y-0 left-0 z-50 md:hidden"
+              style={{ paddingLeft: 'env(safe-area-inset-left)' }}
+            >
+              {sidebar}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      <main className="flex flex-1 flex-col overflow-hidden">
+        {/* Project header */}
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div className="flex items-center gap-3">
+            {/* Hamburger (mobile only) */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="rounded-lg p-1.5 text-muted hover:bg-surface-3 transition-colors md:hidden"
+            >
+              <Menu size={18} />
+            </button>
+            <div>
+              <h1 className="text-base font-bold text-ink">{project.name}</h1>
+              {project.description && (
+                <p className="text-xs text-muted">{project.description}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex -space-x-1">
+              {members.slice(0, 5).map((m) => (
+                <img
+                  key={m.sub}
+                  src={m.avatar || `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(m.name)}`}
+                  alt={m.name}
+                  title={m.name}
+                  className="h-7 w-7 rounded-full border-2 border-surface object-cover"
+                />
+              ))}
+            </div>
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="rounded-lg p-1.5 text-muted hover:bg-surface-3 hover:text-ink transition-colors"
+              title="Ajustes del proyecto"
+            >
+              <Settings size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* View content via React Context */}
+        <div className="flex-1 overflow-hidden">
+          <ProjectContext.Provider value={{
+            projectId: initial.project.id,
+            columns,
+            tasks,
+            members,
+            taskLabels,
+            onTaskClick: (t: Task) => setSelectedTaskId(t.id),
+            onColumnsChange: setColumns,
+            onTasksChange: setTasks,
+            onTaskLabelsChange: setTaskLabels,
+          }}>
+            <ErrorBoundary>
+              <Outlet />
+            </ErrorBoundary>
+          </ProjectContext.Provider>
+        </div>
+      </main>
+
+      {/* Task detail panel */}
+      <AnimatePresence>
+        {selectedTaskId != null && (
+          <TaskDetailPanel
+            key={selectedTaskId}
+            taskId={selectedTaskId}
+            projectId={initial.project.id}
+            members={members}
+            onClose={() => setSelectedTaskId(null)}
+            onDeleted={(id) => {
+              setTasks((prev) => prev.filter((t) => t.id !== id))
+              setTaskLabels((prev) => { const n = { ...prev }; delete n[id]; return n })
+            }}
+            onLabelsChange={(taskId, labels) => setTaskLabels((prev) => ({ ...prev, [taskId]: labels }))}
+          />
+        )}
+        {settingsOpen && (
+          <ProjectSettingsPanel
+            project={project}
+            members={members}
+            isOwner={initial.isOwner}
+            currentSub={initial.currentSub}
+            onClose={() => setSettingsOpen(false)}
+            onProjectUpdated={(patch) => setProject((p) => ({ ...p, ...patch } as Project))}
+            onMemberRemoved={(sub) => setMembers((prev) => prev.filter((m) => m.sub !== sub))}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Command palette */}
+      <AnimatePresence>
+        {paletteOpen && (
+          <CommandPalette
+            projects={projects}
+            tasks={tasks}
+            columns={columns}
+            slug={slug}
+            onClose={() => setPaletteOpen(false)}
+            onTaskClick={(id) => { setSelectedTaskId(id); setPaletteOpen(false) }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Settings modal */}
+      <SettingsModal
+        open={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+      />
+    </div>
+  )
+}
