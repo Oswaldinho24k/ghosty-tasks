@@ -13,12 +13,11 @@ const devLogin = createServerFn({ method: 'GET' }).handler(async () => {
   const { upsertUser } = await import('../users.server')
 
   await ensureSchema()
-  const user = await upsertUser({
-    sub: 'dev-local',
-    email: 'dev@local.test',
-    name: 'Dev Local',
-    avatar: '',
-  })
+  // En dev el rol lo damos nosotros: no hay control-plane que consultar.
+  const user = await upsertUser(
+    { sub: 'dev-local', email: 'dev@local.test', name: 'Dev Local', avatar: '' },
+    'OWNER',
+  )
   const s = await useSession<{ user?: typeof user }>(sessionConfig())
   await s.update({ user })
   return { ok: true }

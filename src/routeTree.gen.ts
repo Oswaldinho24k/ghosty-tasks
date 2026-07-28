@@ -15,7 +15,6 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PSlugRouteImport } from './routes/p.$slug'
-import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as PSlugListRouteImport } from './routes/p.$slug.list'
 import { Route as PSlugGoalsRouteImport } from './routes/p.$slug.goals'
@@ -51,11 +50,6 @@ const PSlugRoute = PSlugRouteImport.update({
   path: '/p/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const JoinTokenRoute = JoinTokenRouteImport.update({
-  id: '/join/$token',
-  path: '/join/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiStreamRoute = ApiStreamRouteImport.update({
   id: '/api/stream',
   path: '/api/stream',
@@ -84,7 +78,6 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
-  '/join/$token': typeof JoinTokenRoute
   '/p/$slug': typeof PSlugRouteWithChildren
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
@@ -97,7 +90,6 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
-  '/join/$token': typeof JoinTokenRoute
   '/p/$slug': typeof PSlugRouteWithChildren
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
@@ -111,7 +103,6 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
-  '/join/$token': typeof JoinTokenRoute
   '/p/$slug': typeof PSlugRouteWithChildren
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
@@ -126,7 +117,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/setup'
     | '/api/stream'
-    | '/join/$token'
     | '/p/$slug'
     | '/p/$slug/board'
     | '/p/$slug/goals'
@@ -139,7 +129,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/setup'
     | '/api/stream'
-    | '/join/$token'
     | '/p/$slug'
     | '/p/$slug/board'
     | '/p/$slug/goals'
@@ -152,7 +141,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/setup'
     | '/api/stream'
-    | '/join/$token'
     | '/p/$slug'
     | '/p/$slug/board'
     | '/p/$slug/goals'
@@ -166,7 +154,6 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
   ApiStreamRoute: typeof ApiStreamRoute
-  JoinTokenRoute: typeof JoinTokenRoute
   PSlugRoute: typeof PSlugRouteWithChildren
 }
 
@@ -212,13 +199,6 @@ declare module '@tanstack/react-router' {
       path: '/p/$slug'
       fullPath: '/p/$slug'
       preLoaderRoute: typeof PSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/join/$token': {
-      id: '/join/$token'
-      path: '/join/$token'
-      fullPath: '/join/$token'
-      preLoaderRoute: typeof JoinTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/stream': {
@@ -273,7 +253,6 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
   ApiStreamRoute: ApiStreamRoute,
-  JoinTokenRoute: JoinTokenRoute,
   PSlugRoute: PSlugRouteWithChildren,
 }
 export const routeTree = rootRouteImport

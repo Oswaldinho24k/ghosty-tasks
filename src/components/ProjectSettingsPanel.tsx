@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { X, Trash2, Link2, Copy, Check, UserMinus } from 'lucide-react'
+import { X, Trash2, Link2, UserMinus } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Rocket, Layers, Target, Palette } from 'lucide-react'
 import { toast } from 'sonner'
 import { updateProjectFn } from '../server/projects'
 import type { Project } from '../server/projects'
 import { removeProjectMemberFn } from '../server/members'
-import { createInvite } from '../server/invites'
 import { MemberAvatar } from './MemberAvatar'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
@@ -48,8 +47,6 @@ export function ProjectSettingsPanel({
   const [color, setColor] = useState(project.color)
   const [icon, setIcon] = useState(project.icon ?? 'Rocket')
   const [saving, setSaving] = useState(false)
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
 
   const ProjectIcon = ICON_MAP[icon] ?? Layers
@@ -72,22 +69,6 @@ export function ProjectSettingsPanel({
     } finally {
       setSaving(false)
     }
-  }
-
-  async function genInvite() {
-    try {
-      const { url } = await createInvite()
-      setInviteUrl(url)
-    } catch {
-      toast.error('Error al generar link')
-    }
-  }
-
-  function copyInvite() {
-    if (!inviteUrl) return
-    navigator.clipboard.writeText(inviteUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
   }
 
   async function removeMember(sub: string) {
@@ -221,33 +202,20 @@ export function ProjectSettingsPanel({
           </div>
         </section>
 
-        {/* Invite */}
+        {/* Al equipo se entra desde el workspace (Ghosty Teams), no desde aquí */}
         {isOwner && (
           <section>
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Invitar</p>
-            {inviteUrl ? (
-              <div className="flex items-center gap-2">
-                <input
-                  readOnly
-                  value={inviteUrl}
-                  className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-ink outline-none"
-                />
-                <button
-                  onClick={copyInvite}
-                  className="flex items-center gap-1 rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-brand-fg"
-                >
-                  {copied ? <><Check size={11} /> OK</> : <><Copy size={11} /> Copiar</>}
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={genInvite}
-                className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-ink hover:bg-surface-2 transition-colors"
-              >
-                <Link2 size={14} />
-                Generar link de invitación
-              </button>
-            )}
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Equipo</p>
+            <p className="mb-3 text-sm text-muted">
+              Los miembros son los del workspace. Se agregan en Ghosty Teams.
+            </p>
+            <a
+              href="https://www.ghosty.studio/app"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-ink hover:bg-surface-2 transition-colors"
+            >
+              <Link2 size={14} />
+              Gestionar el equipo
+            </a>
           </section>
         )}
 

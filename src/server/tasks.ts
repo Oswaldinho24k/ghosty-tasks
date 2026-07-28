@@ -34,7 +34,7 @@ function rowToTask(r: Record<string, string | null>): Task {
 
 // Fractional index: midpoint between prev and next positions (Linear-style)
 async function nextPosition(column_id: number): Promise<number> {
-  const rows = await dbq("SELECT COALESCE(MAX(position), 0) as m FROM gw_tasks WHERE column_id = ? AND parent_id IS NULL", [column_id]);
+  const rows = await dbq("SELECT COALESCE(MAX(position), 0) as m FROM task_tasks WHERE column_id = ? AND parent_id IS NULL", [column_id]);
   return parseFloat(rows[0]?.m ?? "0") + 1000;
 }
 
@@ -43,15 +43,15 @@ export const getTaskDetailFn = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     await ensureSchema();
     await getUserSub();
-    const rows = await dbq("SELECT * FROM gw_tasks WHERE id = ?", [data.id]);
+    const rows = await dbq("SELECT * FROM task_tasks WHERE id = ?", [data.id]);
     if (!rows[0]) throw new Error("task not found");
     const task = rowToTask(rows[0]);
 
-    const checklist = await dbq("SELECT * FROM gw_checklist_items WHERE task_id = ? ORDER BY position ASC", [data.id]);
-    const comments = await dbq("SELECT * FROM gw_task_comments WHERE task_id = ? ORDER BY created_at ASC", [data.id]);
-    const activities = await dbq("SELECT * FROM gw_task_activities WHERE task_id = ? ORDER BY created_at ASC", [data.id]);
-    const labels = await dbq("SELECT label, color FROM gw_task_labels WHERE task_id = ?", [data.id]);
-    const subtasks = await dbq("SELECT * FROM gw_tasks WHERE parent_id = ? ORDER BY position ASC", [data.id]);
+    const checklist = await dbq("SELECT * FROM task_checklist_items WHERE task_id = ? ORDER BY position ASC", [data.id]);
+    const comments = await dbq("SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC", [data.id]);
+    const activities = await dbq("SELECT * FROM task_activities WHERE task_id = ? ORDER BY created_at ASC", [data.id]);
+    const labels = await dbq("SELECT label, color FROM task_labels WHERE task_id = ?", [data.id]);
+    const subtasks = await dbq("SELECT * FROM task_tasks WHERE parent_id = ? ORDER BY position ASC", [data.id]);
 
     return {
       task,
@@ -102,13 +102,13 @@ export const createTaskFn = createServerFn({ method: "POST" })
     const sub = await getUserSub();
     const position = await nextPosition(data.column_id);
     const rows = await dbq(
-      `INSERT INTO gw_tasks (project_id, column_id, parent_id, title, description, priority, assignee_sub, due_date, position, created_by, updated_at)
+      `INSERT INTO task_tasks (project_id, column_id, parent_id, title, description, priority, assignee_sub, due_date, position, created_by, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) RETURNING *`,
       [data.project_id, data.column_id, data.parent_id ?? null, data.title, data.description ?? null,
        data.priority ?? null, data.assignee_sub ?? null, data.due_date ?? null, position, sub]
     );
     const task = rowToTask(rows[0]);
-    await dbq("INSERT INTO gw_task_activities (task_id, user_sub, action) VALUES (?, ?, ?)", [task.id, sub, "created"]);
+    await dbq("INSERT INTO task_activities (task_id, user_sub, action) VALUES (?, ?, ?)", [task.id, sub, "created"]);
     publish(ch.project(data.project_id), {
       t: "task:created",
       task: { id: task.id, project_id: task.project_id, column_id: task.column_id, title: task.title, priority: task.priority, assignee_sub: task.assignee_sub, position: task.position, status: task.status },
@@ -131,7 +131,7 @@ export const updateTaskFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await ensureSchema();
     const sub = await getUserSub();
-    const current = await dbq("SELECT * FROM gw_tasks WHERE id = ?", [data.id]);
+    const current = await dbq("SELECT * FROM task_tasks WHERE id = ?", [data.id]);
     if (!current[0]) throw new Error("task not found");
 
     const sets: string[] = ["updated_at = unixepoch()"];
@@ -139,7 +139,7 @@ export const updateTaskFn = createServerFn({ method: "POST" })
     const patch: Record<string, unknown> = {};
 
     const track = async (action: string, oldVal: string | null, newVal: string | null) => {
-      await dbq("INSERT INTO gw_task_activities (task_id, user_sub, action, old_val, new_val) VALUES (?, ?, ?, ?, ?)",
+      await dbq("INSERT INTO task_activities (task_id, user_sub, action, old_val, new_val) VALUES (?, ?, ?, ?, ?)",
         [data.id, sub, action, oldVal, newVal]);
     };
 
@@ -168,7 +168,7 @@ export const updateTaskFn = createServerFn({ method: "POST" })
     }
 
     args.push(data.id);
-    await dbq(`UPDATE gw_tasks SET ${sets.join(", ")} WHERE id = ?`, args);
+    await dbq(`UPDATE task_tasks SET ${sets.join(", ")} WHERE id = ?`, args);
     publish(ch.project(data.project_id), { t: "task:updated", id: data.id, patch });
   });
 
@@ -182,10 +182,10 @@ export const moveTaskFn = createServerFn({ method: "POST" })
     const next = data.next_position ?? prev + 2000;
     const position = (prev + next) / 2;
     await dbq(
-      "UPDATE gw_tasks SET column_id = ?, position = ?, updated_at = unixepoch() WHERE id = ?",
+      "UPDATE task_tasks SET column_id = ?, position = ?, updated_at = unixepoch() WHERE id = ?",
       [data.column_id, position, data.id]
     );
-    await dbq("INSERT INTO gw_task_activities (task_id, user_sub, action, new_val) VALUES (?, ?, ?, ?)",
+    await dbq("INSERT INTO task_activities (task_id, user_sub, action, new_val) VALUES (?, ?, ?, ?)",
       [data.id, sub, "moved", String(data.column_id)]);
     publish(ch.project(data.project_id), { t: "task:moved", id: data.id, column_id: data.column_id, position });
   });
@@ -195,11 +195,11 @@ export const deleteTaskFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await ensureSchema();
     await getUserSub();
-    await dbq("DELETE FROM gw_checklist_items WHERE task_id = ?", [data.id]);
-    await dbq("DELETE FROM gw_task_comments WHERE task_id = ?", [data.id]);
-    await dbq("DELETE FROM gw_task_labels WHERE task_id = ?", [data.id]);
-    await dbq("DELETE FROM gw_task_activities WHERE task_id = ?", [data.id]);
-    await dbq("DELETE FROM gw_tasks WHERE id = ?", [data.id]);
+    await dbq("DELETE FROM task_checklist_items WHERE task_id = ?", [data.id]);
+    await dbq("DELETE FROM task_comments WHERE task_id = ?", [data.id]);
+    await dbq("DELETE FROM task_labels WHERE task_id = ?", [data.id]);
+    await dbq("DELETE FROM task_activities WHERE task_id = ?", [data.id]);
+    await dbq("DELETE FROM task_tasks WHERE id = ?", [data.id]);
     publish(ch.project(data.project_id), { t: "task:deleted", id: data.id, project_id: data.project_id });
   });
 
@@ -208,8 +208,8 @@ export const setTaskLabelsFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await ensureSchema();
     await getUserSub();
-    await dbq("DELETE FROM gw_task_labels WHERE task_id = ?", [data.task_id]);
+    await dbq("DELETE FROM task_labels WHERE task_id = ?", [data.task_id]);
     for (const l of data.labels) {
-      await dbq("INSERT INTO gw_task_labels (task_id, label, color) VALUES (?, ?, ?)", [data.task_id, l.label, l.color]);
+      await dbq("INSERT INTO task_labels (task_id, label, color) VALUES (?, ?, ?)", [data.task_id, l.label, l.color]);
     }
   });

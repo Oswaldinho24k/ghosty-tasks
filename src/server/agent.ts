@@ -16,16 +16,16 @@ type TaskSpec = { title: string; column_id: number; priority?: string }
 
 async function buildProjectContext(projectId: number, userSub: string): Promise<ProjectCtx> {
   const [project, columns, tasks, members, currentUser] = await Promise.all([
-    dbq('SELECT name FROM gw_projects WHERE id = ?', [projectId]),
-    dbq('SELECT id, name FROM gw_columns WHERE project_id = ? ORDER BY position', [projectId]),
-    dbq('SELECT column_id, priority FROM gw_tasks WHERE project_id = ? AND parent_id IS NULL', [projectId]),
+    dbq('SELECT name FROM task_projects WHERE id = ?', [projectId]),
+    dbq('SELECT id, name FROM task_columns WHERE project_id = ? ORDER BY position', [projectId]),
+    dbq('SELECT column_id, priority FROM task_tasks WHERE project_id = ? AND parent_id IS NULL', [projectId]),
     dbq(
-      `SELECT u.name FROM gw_project_members m
-       JOIN gw_users u ON u.sub = m.user_sub
+      `SELECT u.name FROM task_project_members m
+       JOIN gc_users u ON u.sub = m.user_sub
        WHERE m.project_id = ?`,
       [projectId]
     ),
-    dbq('SELECT name FROM gw_users WHERE sub = ?', [userSub]),
+    dbq('SELECT name FROM gc_users WHERE sub = ?', [userSub]),
   ])
 
   const colMap = new Map<number, { name: string; count: number }>(
@@ -187,12 +187,12 @@ async function runAgentTurn({
   for (const spec of specs) {
     try {
       const posRows = await dbq(
-        'SELECT COALESCE(MAX(position), 0) as m FROM gw_tasks WHERE column_id = ? AND parent_id IS NULL',
+        'SELECT COALESCE(MAX(position), 0) as m FROM task_tasks WHERE column_id = ? AND parent_id IS NULL',
         [spec.column_id]
       )
       const position = parseFloat(posRows[0]?.m ?? '0') + 1000
       const rows = await dbq(
-        `INSERT INTO gw_tasks (project_id, column_id, title, priority, position, created_by, updated_at)
+        `INSERT INTO task_tasks (project_id, column_id, title, priority, position, created_by, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, unixepoch()) RETURNING *`,
         [projectId, spec.column_id, spec.title, spec.priority ?? null, position, userSub]
       )

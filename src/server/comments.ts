@@ -15,7 +15,7 @@ export type Comment = {
 };
 
 async function getProjectId(task_id: number): Promise<number> {
-  const rows = await dbq("SELECT project_id FROM gw_tasks WHERE id = ?", [task_id]);
+  const rows = await dbq("SELECT project_id FROM task_tasks WHERE id = ?", [task_id]);
   return num(rows[0]?.project_id);
 }
 
@@ -47,7 +47,7 @@ export const getCommentsFn = createServerFn({ method: "GET" })
     await ensureSchema();
     await getUser();
     const rows = await dbq(
-      "SELECT * FROM gw_task_comments WHERE task_id = ? ORDER BY created_at ASC",
+      "SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC",
       [data.task_id]
     );
     return rows.map(rowToComment);
@@ -59,7 +59,7 @@ export const addCommentFn = createServerFn({ method: "POST" })
     await ensureSchema();
     const user = await getUser();
     const rows = await dbq(
-      "INSERT INTO gw_task_comments (task_id, sender_sub, sender_name, avatar, body, created_at) VALUES (?, ?, ?, ?, ?, unixepoch()) RETURNING *",
+      "INSERT INTO task_comments (task_id, sender_sub, sender_name, avatar, body, created_at) VALUES (?, ?, ?, ?, ?, unixepoch()) RETURNING *",
       [data.task_id, user.sub, user.name, user.avatar, data.body]
     );
     const comment = rowToComment(rows[0]);
@@ -74,10 +74,10 @@ export const updateCommentFn = createServerFn({ method: "POST" })
     await ensureSchema();
     const user = await getUser();
     await dbq(
-      "UPDATE gw_task_comments SET body = ?, edited_at = unixepoch() WHERE id = ? AND sender_sub = ?",
+      "UPDATE task_comments SET body = ?, edited_at = unixepoch() WHERE id = ? AND sender_sub = ?",
       [data.body, data.id, user.sub]
     );
-    const rows = await dbq("SELECT * FROM gw_task_comments WHERE id = ?", [data.id]);
+    const rows = await dbq("SELECT * FROM task_comments WHERE id = ?", [data.id]);
     const comment = rowToComment(rows[0]);
     const project_id = await getProjectId(data.task_id);
     publish(ch.project(project_id), { t: "comment:updated", task_id: data.task_id, comment });
@@ -89,7 +89,7 @@ export const deleteCommentFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await ensureSchema();
     const user = await getUser();
-    await dbq("DELETE FROM gw_task_comments WHERE id = ? AND sender_sub = ?", [data.id, user.sub]);
+    await dbq("DELETE FROM task_comments WHERE id = ? AND sender_sub = ?", [data.id, user.sub]);
     const project_id = await getProjectId(data.task_id);
     publish(ch.project(project_id), { t: "comment:deleted", task_id: data.task_id, comment_id: data.id });
   });

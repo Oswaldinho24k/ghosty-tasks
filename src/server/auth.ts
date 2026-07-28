@@ -38,22 +38,12 @@ export function clearMeCache() {
 // Devuelve el URL del handshake de identidad. Si GHOSTY_PARTNER_SECRET está
 // configurado, firma el request (HMAC); si no, ghosty.studio acepta sin firma.
 export const startGhostyLogin = createServerFn({ method: "GET" })
-  .validator((d: { inviteToken?: string } | undefined) => d ?? {})
-  .handler(async ({ data }) => {
-    let origin = process.env.APP_URL ?? "";
-    if (!origin) {
-      const { getRequestHeader, getRequestHost, getRequestProtocol } = await import(
-        "@tanstack/react-start/server"
-      );
-      const ghostyOrigin = getRequestHeader("x-ghosty-origin");
-      if (ghostyOrigin) {
-        origin = ghostyOrigin;
-      } else {
-        const host = getRequestHeader("x-forwarded-host") || getRequestHost();
-        const proto = getRequestHeader("x-forwarded-proto") || getRequestProtocol() || "https";
-        if (host) origin = `${proto}://${host}`;
-      }
-    }
+  .validator((d: Record<string, never> | undefined) => d ?? {})
+  .handler(async () => {
+    // Del REQUEST, nunca de una env fija: cada workspace tiene su subdominio y el IdP
+    // devuelve la identidad al origin que le firmamos.
+    const { reqOrigin } = await import("../origin.server");
+    const origin = await reqOrigin();
     const secret = process.env.GHOSTY_PARTNER_SECRET;
     const params: Record<string, string> = { o: origin };
     if (secret) {
@@ -64,13 +54,13 @@ export const startGhostyLogin = createServerFn({ method: "GET" })
       params.sig = sig;
     }
     const p = new URLSearchParams(params);
-    return { url: `${IDP}/identity/connect?${p}`, idpOrigin: IDP, inviteToken: data.inviteToken };
+    return { url: `${IDP}/identity/connect?${p}`, idpOrigin: IDP };
   });
 
 // Recibe la identidad de ghosty.studio, crea sesión.
 // Verifica la firma HMAC solo si GHOSTY_PARTNER_SECRET está configurado.
 export const completeGhostyLogin = createServerFn({ method: "POST" })
-  .validator((d: { payload: string; sig?: string; inviteToken?: string }) => d)
+  .validator((d: { payload: string; sig?: string }) => d)
   .handler(async ({ data }) => {
     const secret = process.env.GHOSTY_PARTNER_SECRET;
     if (secret && data.sig) {
@@ -85,20 +75,22 @@ export const completeGhostyLogin = createServerFn({ method: "POST" })
     };
     if (Math.abs(Math.floor(Date.now() / 1000) - id.ts) > 300) throw new Error("identidad expirada");
 
-    await (await import("./schema.server")).ensureSchema().catch(() => {});
+    // El acceso lo decide gs, no una tabla local: Tasks no tiene padrón propio ni
+    // invitaciones — quien está en el equipo en Ghosty Teams entra aquí, y punto.
+    const { currentSlug } = await import("./tenant.server");
+    const { membershipOf } = await import("./membership.server");
+    const slug = await currentSlug();
+    const m = await membershipOf(id.sub);
+    if (slug && !m.member) throw new Error("no eres miembro de este workspace");
 
-    const { consumeInvite } = await import("./invites");
-    const invited = data.inviteToken ? await consumeInvite(data.inviteToken, id.sub) : false;
+    // Después del guard: crear las tablas es trabajo que no se le hace a un extraño.
+    await (await import("./schema.server")).ensureSchema();
 
-    const { isBanned, upsertUser } = await import("../users.server");
-    if (await isBanned(id.sub)) throw new Error("sin acceso a este workspace");
-
-    const user = await upsertUser({ sub: id.sub, email: id.email, name: id.name, avatar: id.avatar });
-
-    if (!user.isOwner && !invited) {
-      const { isKnownUser } = await import("./invites");
-      if (!(await isKnownUser(id.sub))) throw new Error("necesitas una invitación");
-    }
+    const { upsertUser } = await import("../users.server");
+    const user = await upsertUser(
+      { sub: id.sub, email: id.email, name: id.name, avatar: id.avatar },
+      m.role
+    );
 
     const s = await session();
     await s.update({ user });

@@ -27,14 +27,19 @@ export type WwEvent =
   | { t: "agent:done"; turnId: string; value: string; created_tasks: Array<{ id: number; title: string; column_id: number }> };
 
 type Listener = (ev: WwEvent) => void;
-type Client = { channels: Set<string>; listener: Listener; sub: string };
+// ⚠️ El bus es EN MEMORIA y el proceso sirve a TODOS los workspaces, así que cada
+// suscriptor y cada evento van marcados con su namespace. Los ids son autoincrementales
+// POR DB: sin esa marca, `project:1` de un equipo y `project:1` de otro son el mismo
+// canal, y un movimiento de tarjeta se le aparecía a gente de otra empresa.
+type Client = { ns: string; channels: Set<string>; listener: Listener; sub: string };
 
 const clients = new Set<Client>();
-const online = new Map<string, number>();
+// Presencia por namespace: si no, "en línea" mezclaría gente de workspaces ajenos.
+const online = new Map<string, Map<string, number>>();
 
-export function publish(channel: string, ev: WwEvent): void {
+function emit(ns: string, channel: string, ev: WwEvent): void {
   for (const c of clients) {
-    if (!c.channels.has(channel)) continue;
+    if (c.ns !== ns || !c.channels.has(channel)) continue;
     try {
       c.listener(ev);
     } catch {
@@ -43,30 +48,41 @@ export function publish(channel: string, ev: WwEvent): void {
   }
 }
 
+// Async porque el namespace se resuelve por request. Los publishers no la esperan: un
+// evento perdido no debe romper la mutación que lo originó.
+export async function publish(channel: string, ev: WwEvent): Promise<void> {
+  const { currentNamespace } = await import("./tenant.server");
+  emit(await currentNamespace(), channel, ev);
+}
+
 export function addClient(
+  ns: string,
   sub: string,
   name: string,
   channels: string[],
   listener: Listener
 ): () => void {
-  const client: Client = { channels: new Set(channels), listener, sub };
+  const client: Client = { ns, channels: new Set(channels), listener, sub };
   clients.add(client);
-  const prev = online.get(sub) ?? 0;
-  online.set(sub, prev + 1);
-  if (prev === 0) publish(ch.presence(), { t: "presence", sub, name, status: "online" });
+  let byNs = online.get(ns);
+  if (!byNs) online.set(ns, (byNs = new Map()));
+  const prev = byNs.get(sub) ?? 0;
+  byNs.set(sub, prev + 1);
+  if (prev === 0) emit(ns, ch.presence(), { t: "presence", sub, name, status: "online" });
 
   return () => {
     clients.delete(client);
-    const n = (online.get(sub) ?? 1) - 1;
+    const n = (byNs!.get(sub) ?? 1) - 1;
     if (n <= 0) {
-      online.delete(sub);
-      publish(ch.presence(), { t: "presence", sub, name, status: "offline" });
+      byNs!.delete(sub);
+      if (byNs!.size === 0) online.delete(ns);
+      emit(ns, ch.presence(), { t: "presence", sub, name, status: "offline" });
     } else {
-      online.set(sub, n);
+      byNs!.set(sub, n);
     }
   };
 }
 
-export function onlineUsers(): string[] {
-  return [...online.keys()];
+export function onlineUsers(ns: string): string[] {
+  return [...(online.get(ns)?.keys() ?? [])];
 }

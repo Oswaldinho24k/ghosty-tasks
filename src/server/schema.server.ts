@@ -1,73 +1,40 @@
-import { dbq } from "../dbq.server";
+import { dbqManySettled } from "../dbq.server";
+import { currentNamespace } from "./tenant.server";
 
-// Migraciones ADITIVAS e idempotentes. Todo es IF NOT EXISTS.
-// Si falla (DB transitoria), done se resetea y el siguiente request reintenta.
-let done: Promise<void> | null = null;
-export function ensureSchema(): Promise<void> {
-  if (!done) {
-    done = migrate().catch((e) => {
-      done = null;
+// Migraciones ADITIVAS e idempotentes de las tablas `task_*`. Todo es IF NOT EXISTS.
+//
+// Las tareas viven en la MISMA DB que el chat de ese workspace (tablas `gc_*`), así
+// que el prefijo es la única frontera entre productos: nada de `gw_*` (el nombre
+// viejo del repo, "ghosty-work") ni de tocar tablas ajenas — salvo `gc_users`, que es
+// el perfil compartido y lo escriben los dos a propósito.
+//
+// El memo es POR NAMESPACE: un solo proceso sirve todos los workspaces, y con un
+// `done` global el primer tenant lo fijaba y los demás se saltaban sus migraciones →
+// "no such table" en cada workspace nuevo. No se cachean los fallos.
+const done = new Map<string, Promise<void>>();
+export async function ensureSchema(): Promise<void> {
+  const ns = await currentNamespace();
+  let p = done.get(ns);
+  if (!p) {
+    p = migrate().catch((e) => {
+      done.delete(ns);
       throw e;
     });
+    done.set(ns, p);
   }
-  return done;
+  return p;
 }
 
-async function hasColumn(table: string, col: string): Promise<boolean> {
-  const rows = await dbq(`PRAGMA table_info(${table})`);
-  return rows.some((r) => r.name === col);
-}
-
-async function migrate(): Promise<void> {
-  const fails: string[] = [];
-  const exec = async (sql: string) => {
-    try {
-      await dbq(sql);
-    } catch (e) {
-      fails.push(`${sql.slice(0, 48)}… → ${String(e).slice(0, 90)}`);
-    }
-  };
-  const addColumn = async (table: string, col: string, decl: string) => {
-    let has: boolean;
-    try {
-      has = await hasColumn(table, col);
-    } catch (e) {
-      fails.push(`PRAGMA ${table} → ${String(e).slice(0, 90)}`);
-      return;
-    }
-    if (has) return;
-    await exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`);
-  };
-
-  // Workspace users (mirrors gc_users pattern but for ghosty-work)
-  await exec(`CREATE TABLE IF NOT EXISTS gw_users (
-    sub        TEXT PRIMARY KEY,
-    email      TEXT NOT NULL,
-    name       TEXT NOT NULL,
-    avatar     TEXT NOT NULL DEFAULT '',
-    handle     TEXT UNIQUE,
-    is_owner   INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
-
-  // Invite tokens (one-use)
-  await exec(`CREATE TABLE IF NOT EXISTS gw_invites (
-    token      TEXT PRIMARY KEY,
-    created_by TEXT NOT NULL,
-    used_by    TEXT,
-    used_at    INTEGER,
-    created_at INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
-
-  // Key-value config store
-  await exec(`CREATE TABLE IF NOT EXISTS gw_config (
+const DDL: string[] = [
+  // Key-value config del producto tareas (el chat tiene su propio gc_config).
+  `CREATE TABLE IF NOT EXISTS task_config (
     k          TEXT PRIMARY KEY,
     v          TEXT,
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
+  )`,
 
-  // Projects
-  await exec(`CREATE TABLE IF NOT EXISTS gw_projects (
+  // Proyectos (tableros)
+  `CREATE TABLE IF NOT EXISTS task_projects (
     id          INTEGER PRIMARY KEY,
     slug        TEXT UNIQUE NOT NULL,
     name        TEXT NOT NULL,
@@ -77,19 +44,19 @@ async function migrate(): Promise<void> {
     archived    INTEGER NOT NULL DEFAULT 0,
     created_by  TEXT NOT NULL,
     created_at  INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
+  )`,
 
-  // Project members (owner + member roles)
-  await exec(`CREATE TABLE IF NOT EXISTS gw_project_members (
+  // Miembros POR PROYECTO. Ojo: el padrón del workspace NO vive aquí — lo dice gs.
+  `CREATE TABLE IF NOT EXISTS task_project_members (
     project_id INTEGER NOT NULL,
     user_sub   TEXT NOT NULL,
     role       TEXT NOT NULL DEFAULT 'member',
     PRIMARY KEY (project_id, user_sub)
-  )`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_project_members_user ON gw_project_members(user_sub)`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_project_members_user ON task_project_members(user_sub)`,
 
-  // Kanban columns per project
-  await exec(`CREATE TABLE IF NOT EXISTS gw_columns (
+  // Columnas del kanban
+  `CREATE TABLE IF NOT EXISTS task_columns (
     id         INTEGER PRIMARY KEY,
     project_id INTEGER NOT NULL,
     name       TEXT NOT NULL,
@@ -97,11 +64,11 @@ async function migrate(): Promise<void> {
     color      TEXT,
     wip_limit  INTEGER,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_columns_project ON gw_columns(project_id, position)`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_columns_project ON task_columns(project_id, position)`,
 
-  // Tasks
-  await exec(`CREATE TABLE IF NOT EXISTS gw_tasks (
+  // Tareas
+  `CREATE TABLE IF NOT EXISTS task_tasks (
     id           INTEGER PRIMARY KEY,
     project_id   INTEGER NOT NULL,
     column_id    INTEGER NOT NULL,
@@ -116,33 +83,33 @@ async function migrate(): Promise<void> {
     created_by   TEXT NOT NULL,
     created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at   INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_tasks_project ON gw_tasks(project_id, column_id, position)`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_tasks_assignee ON gw_tasks(assignee_sub, status)`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_tasks_parent ON gw_tasks(parent_id) WHERE parent_id IS NOT NULL`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_tasks_project ON task_tasks(project_id, column_id, position)`,
+  `CREATE INDEX IF NOT EXISTS task_tasks_assignee ON task_tasks(assignee_sub, status)`,
+  `CREATE INDEX IF NOT EXISTS task_tasks_parent ON task_tasks(parent_id) WHERE parent_id IS NOT NULL`,
 
-  // Task labels (freeform, colored chips)
-  await exec(`CREATE TABLE IF NOT EXISTS gw_task_labels (
+  // Etiquetas
+  `CREATE TABLE IF NOT EXISTS task_labels (
     task_id INTEGER NOT NULL,
     label   TEXT NOT NULL,
     color   TEXT NOT NULL DEFAULT '#6b7280',
     PRIMARY KEY (task_id, label)
-  )`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_task_labels_task ON gw_task_labels(task_id)`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_labels_task ON task_labels(task_id)`,
 
-  // Checklist items inside a task
-  await exec(`CREATE TABLE IF NOT EXISTS gw_checklist_items (
+  // Checklist dentro de una tarea
+  `CREATE TABLE IF NOT EXISTS task_checklist_items (
     id         INTEGER PRIMARY KEY,
     task_id    INTEGER NOT NULL,
     body       TEXT NOT NULL,
     done       INTEGER NOT NULL DEFAULT 0,
     position   INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_checklist_task ON gw_checklist_items(task_id, position)`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_checklist_task ON task_checklist_items(task_id, position)`,
 
-  // Human comments on tasks
-  await exec(`CREATE TABLE IF NOT EXISTS gw_task_comments (
+  // Comentarios
+  `CREATE TABLE IF NOT EXISTS task_comments (
     id           INTEGER PRIMARY KEY,
     task_id      INTEGER NOT NULL,
     sender_sub   TEXT NOT NULL,
@@ -151,11 +118,11 @@ async function migrate(): Promise<void> {
     body         TEXT NOT NULL,
     edited_at    INTEGER,
     created_at   INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_comments_task ON gw_task_comments(task_id, created_at)`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_comments_task ON task_comments(task_id, created_at)`,
 
-  // Activity log per task
-  await exec(`CREATE TABLE IF NOT EXISTS gw_task_activities (
+  // Bitácora por tarea
+  `CREATE TABLE IF NOT EXISTS task_activities (
     id         INTEGER PRIMARY KEY,
     task_id    INTEGER NOT NULL,
     user_sub   TEXT NOT NULL,
@@ -163,11 +130,11 @@ async function migrate(): Promise<void> {
     old_val    TEXT,
     new_val    TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_activities_task ON gw_task_activities(task_id, created_at)`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_activities_task ON task_activities(task_id, created_at)`,
 
-  // Goals (lightweight epics, opt-in)
-  await exec(`CREATE TABLE IF NOT EXISTS gw_goals (
+  // Goals (épicas ligeras)
+  `CREATE TABLE IF NOT EXISTS task_goals (
     id          INTEGER PRIMARY KEY,
     project_id  INTEGER NOT NULL,
     title       TEXT NOT NULL,
@@ -176,18 +143,17 @@ async function migrate(): Promise<void> {
     due_date    INTEGER,
     created_by  TEXT NOT NULL,
     created_at  INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_goals_project ON gw_goals(project_id)`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_goals_project ON task_goals(project_id)`,
 
-  // Goal ↔ Task links
-  await exec(`CREATE TABLE IF NOT EXISTS gw_goal_tasks (
+  `CREATE TABLE IF NOT EXISTS task_goal_tasks (
     goal_id INTEGER NOT NULL,
     task_id INTEGER NOT NULL,
     PRIMARY KEY (goal_id, task_id)
-  )`);
+  )`,
 
-  // Ghosty AI messages per task (Phase 3)
-  await exec(`CREATE TABLE IF NOT EXISTS gw_ghosty_messages (
+  // Mensajes del agente por tarea
+  `CREATE TABLE IF NOT EXISTS task_ghosty_messages (
     id           INTEGER PRIMARY KEY,
     task_id      INTEGER NOT NULL,
     sender_sub   TEXT NOT NULL,
@@ -195,22 +161,61 @@ async function migrate(): Promise<void> {
     body         TEXT NOT NULL,
     kind         TEXT NOT NULL DEFAULT 'msg',
     created_at   INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
-  await exec(`CREATE INDEX IF NOT EXISTS gw_ghosty_msg_task ON gw_ghosty_messages(task_id, created_at)`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_ghosty_msg_task ON task_ghosty_messages(task_id, created_at)`,
 
-  // Bridge tokens (Ghosty Teams → Ghosty Tasks webhook, Phase 3)
-  await exec(`CREATE TABLE IF NOT EXISTS gw_bridge_tokens (
+  // Tokens del puente Teams → Tasks
+  `CREATE TABLE IF NOT EXISTS task_bridge_tokens (
     id         INTEGER PRIMARY KEY,
     token      TEXT UNIQUE NOT NULL,
     label      TEXT,
     project_id INTEGER,
     created_by TEXT NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
-  )`);
+  )`,
 
-  // Additive columns for future migrations go here
-  await addColumn("gw_tasks", "updated_at_check", "INTEGER");
-  await addColumn("gw_users", "banned", "INTEGER NOT NULL DEFAULT 0");
+  // El perfil compartido con Teams. Tasks NO lo crea desde cero (Teams ya lo hizo al
+  // provisionar el workspace), pero un workspace al que se entre PRIMERO por Tasks sí
+  // lo necesita. Mismas columnas base que gc_users en ghosty-chat.
+  `CREATE TABLE IF NOT EXISTS gc_users (
+    id         INTEGER PRIMARY KEY,
+    sub        TEXT UNIQUE NOT NULL,
+    email      TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    avatar     TEXT NOT NULL DEFAULT '',
+    handle     TEXT UNIQUE,
+    is_owner   INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  )`,
+];
+
+// Columnas aditivas: `${tabla}.${columna}` → declaración. Se aplican solo si faltan.
+const COLUMNS: Array<[string, string, string]> = [
+  ["task_tasks", "updated_at_check", "INTEGER"],
+];
+
+async function migrate(): Promise<void> {
+  // Un solo round-trip para TODO el DDL (antes eran ~30 seriados, y los pagaba el
+  // primer request de cada workspace).
+  const res = await dbqManySettled(DDL.map((sql) => ({ sql })));
+  const fails = res
+    .map((r, i) => (r.ok ? null : `${DDL[i].slice(0, 48)}… → ${r.error}`))
+    .filter(Boolean) as string[];
+
+  for (const [table, col, decl] of COLUMNS) {
+    try {
+      const info = await dbqManySettled([{ sql: `PRAGMA table_info(${table})` }]);
+      if (!info[0].ok) {
+        fails.push(`PRAGMA ${table} → ${info[0].error}`);
+        continue;
+      }
+      if (info[0].rows.some((r) => r.name === col)) continue;
+      const add = await dbqManySettled([{ sql: `ALTER TABLE ${table} ADD COLUMN ${col} ${decl}` }]);
+      if (!add[0].ok) fails.push(`ALTER ${table}.${col} → ${add[0].error}`);
+    } catch (e) {
+      fails.push(`${table}.${col} → ${String(e).slice(0, 90)}`);
+    }
+  }
 
   if (fails.length) {
     throw new Error(`ensureSchema: ${fails.length} sentencia(s) fallaron: ${fails.join(" | ")}`);

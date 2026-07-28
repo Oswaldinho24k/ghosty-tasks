@@ -1,9 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { me } from '../server/auth'
 import { listWorkspaceUsersFn } from '../server/members'
-import { createInvite } from '../server/invites'
-import { useState } from 'react'
-import { Users, Link2, Copy, Check, Crown, Shield } from 'lucide-react'
+import { Users, Link2, Crown, Shield } from 'lucide-react'
 import { MemberAvatar } from '../components/MemberAvatar'
 
 export const Route = createFileRoute('/settings')({
@@ -19,20 +17,6 @@ export const Route = createFileRoute('/settings')({
 
 function Settings() {
   const { user, workspaceMembers } = Route.useLoaderData()
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
-
-  async function genInvite() {
-    const { url } = await createInvite()
-    setInviteUrl(url)
-  }
-
-  function copy() {
-    if (!inviteUrl) return
-    navigator.clipboard.writeText(inviteUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
 
   return (
     <div className="mx-auto max-w-lg py-10 px-6 space-y-5">
@@ -91,44 +75,23 @@ function Settings() {
         </div>
       </section>
 
-      {/* Invite */}
+      {/* Miembros: el padrón es del workspace, y vive en Ghosty Teams */}
       <section className="rounded-xl border border-border bg-surface-2 p-5">
         <div className="flex items-center gap-2 mb-4">
           <Link2 size={16} className="text-muted" />
-          <h2 className="text-sm font-semibold text-ink">Invitar al workspace</h2>
+          <h2 className="text-sm font-semibold text-ink">Agregar miembros</h2>
         </div>
-        {user?.isOwner ? (
-          <div>
-            <p className="text-sm text-muted mb-3">
-              Genera un link de un solo uso para invitar a alguien.
-            </p>
-            {inviteUrl ? (
-              <div className="flex items-center gap-2">
-                <input
-                  readOnly
-                  value={inviteUrl}
-                  className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-ink outline-none"
-                />
-                <button
-                  onClick={copy}
-                  className="flex items-center gap-1 rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-brand-fg"
-                >
-                  {copied ? <><Check size={12} /> Copiado</> : <><Copy size={12} /> Copiar</>}
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={genInvite}
-                className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-fg hover:brightness-110 transition-all"
-              >
-                <Link2 size={14} />
-                Generar link de invitación
-              </button>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-muted">Solo el owner puede invitar miembros.</p>
-        )}
+        <p className="text-sm text-muted mb-3">
+          El equipo es el mismo que en Ghosty Teams: quien entra ahí entra aquí. Se
+          invita desde el workspace, no desde las tareas.
+        </p>
+        <a
+          href="https://www.ghosty.studio/app"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-fg hover:brightness-110 transition-all"
+        >
+          <Users size={14} />
+          Gestionar el equipo
+        </a>
       </section>
 
       <div className="pt-2">
