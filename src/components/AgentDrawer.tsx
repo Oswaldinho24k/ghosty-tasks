@@ -451,7 +451,19 @@ export function AgentDrawer({
                     : 'bg-surface-2 text-ink rounded-bl-sm'
                 }`}
               >
-                {msg.role === 'agent' ? (
+                {msg.role === 'agent' && msg.streaming && !stripJsonBlock(msg.content).trim() ? (
+                  // Tres puntitos mientras no llega nada: un cursor parpadeando sobre una
+                  // burbuja vacía parece que se colgó.
+                  <span className="flex items-center gap-1 py-1">
+                    {[0, 1, 2].map((i) => (
+                      <span
+                        key={i}
+                        className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted"
+                        style={{ animationDelay: `${i * 120}ms` }}
+                      />
+                    ))}
+                  </span>
+                ) : msg.role === 'agent' ? (
                   // El agente responde en markdown (negritas, listas, código): en crudo
                   // se leían los asteriscos.
                   <div className="gt-md">
