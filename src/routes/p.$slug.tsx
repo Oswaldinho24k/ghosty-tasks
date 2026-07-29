@@ -236,7 +236,9 @@ function ProjectShell() {
 
       <main className="flex flex-1 flex-col overflow-hidden">
         {/* Project header */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        {/* z-30: por encima de la capa que cierra el detalle al hacer clic fuera. Si no,
+            abrir una tarea bloqueaba "Nueva tarea" y el botón del agente. */}
+        <div className="relative z-30 flex items-center justify-between border-b border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-3">
             {/* Hamburger (mobile only) */}
             <button

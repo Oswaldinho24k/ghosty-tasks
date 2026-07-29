@@ -221,6 +221,15 @@ export function TaskDetailPanel({
     onLabelsChange?.(taskId, updated)
   }
 
+  /** Renombra o recolorea una etiqueta de esta tarea. */
+  async function editLabel(oldLabel: string, label: string, color: string) {
+    const updated = labels.map((l) => (l.label === oldLabel ? { label, color } : l))
+    await setTaskLabelsFn({ data: { task_id: taskId, labels: updated } })
+    setLabels(updated)
+    onLabelsChange?.(taskId, updated)
+    setEditingLabel(null)
+  }
+
   async function addLabel(label: string, color: string) {
     if (labels.find((l) => l.label === label)) return
     const updated = [...labels, { label, color }]
@@ -240,8 +249,10 @@ export function TaskDetailPanel({
       setNewLabelText('')
       setNewLabelColor(LABEL_COLORS[0])
       toast.success('Label agregada')
-    } catch {
-      toast.error('Error al agregar label')
+    } catch (e) {
+      // El mensaje real, no un genérico: "Error al agregar label" no dice si fue permiso,
+      // sesión caída o la DB, y obliga a ir al log del servidor para cada reporte.
+      toast.error((e as Error)?.message || 'No se pudo agregar la etiqueta')
     }
   }
 
@@ -308,6 +319,7 @@ export function TaskDetailPanel({
 
   // Esc cierra, como cualquier otro panel de la app.
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [editingLabel, setEditingLabel] = useState<string | null>(null)
 
   useEffect(() => registerModalEsc(onClose), [onClose])
 
@@ -481,18 +493,53 @@ export function TaskDetailPanel({
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {labels.map((l) => (
-                  <span
-                    key={l.label}
-                    className="group inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white"
-                    style={{ background: l.color }}
-                  >
-                    {l.label}
-                    <button onClick={() => removeLabel(l.label)} className="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X size={10} />
-                    </button>
-                  </span>
-                ))}
+                {labels.map((l) =>
+                  editingLabel === l.label ? (
+                    // Editar en el sitio: cambiar el texto o el color no debería obligar a
+                    // borrarla y volver a crearla (perdiendo el color que ya tenía).
+                    <span key={l.label} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5">
+                      <input
+                        autoFocus
+                        defaultValue={l.label}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const v = (e.target as HTMLInputElement).value.trim()
+                            if (v) editLabel(l.label, v, l.color)
+                          }
+                          if (e.key === 'Escape') setEditingLabel(null)
+                        }}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim()
+                          if (v && v !== l.label) editLabel(l.label, v, l.color)
+                          else setEditingLabel(null)
+                        }}
+                        className="w-24 bg-transparent text-xs text-ink outline-none"
+                      />
+                      {LABEL_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => editLabel(l.label, l.label, c)}
+                          title="Cambiar color"
+                          className={`h-3 w-3 rounded-full ${c === l.color ? 'ring-2 ring-offset-1 ring-brand' : ''}`}
+                          style={{ background: c }}
+                        />
+                      ))}
+                    </span>
+                  ) : (
+                    <span
+                      key={l.label}
+                      className="group inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white"
+                      style={{ background: l.color }}
+                    >
+                      <button onClick={() => setEditingLabel(l.label)} title="Editar etiqueta">
+                        {l.label}
+                      </button>
+                      <button onClick={() => removeLabel(l.label)} className="opacity-0 transition-opacity group-hover:opacity-100">
+                        <X size={10} />
+                      </button>
+                    </span>
+                  )
+                )}
               </div>
               {showLabelPicker && (
                 <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3 space-y-3">
