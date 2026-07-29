@@ -48,17 +48,19 @@ export function TaskCard({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      className={`group relative rounded-xl border bg-surface p-3 shadow-sm transition-all
+      className={`group relative overflow-hidden rounded-xl border bg-surface p-3 shadow-sm transition-all
         hover:shadow-md hover:border-brand/30 cursor-pointer select-none
         ${isDragging ? 'opacity-40 scale-95' : ''}
         ${task.status === 'done' ? 'opacity-60' : ''}
         border-border`}
     >
       {/* Prioridad como barra SUPERIOR: se lee como parte de la tarjeta y no compite con
-          el borde izquierdo de la columna. */}
+          el borde izquierdo de la columna. La curva la pone el `overflow-hidden` de la
+          tarjeta, no un radio propio: 4px de alto con `rounded-t-xl` (12px) daba una barra
+          apuntada que se salía de la esquina en vez de seguirla. */}
       {task.priority && (
         <div
-          className="absolute inset-x-0 top-0 h-1 rounded-t-xl"
+          className="absolute inset-x-0 top-0 h-1"
           style={{ background: priorityColor(task.priority) }}
         />
       )}

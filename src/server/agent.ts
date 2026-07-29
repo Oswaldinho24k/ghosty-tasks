@@ -60,6 +60,38 @@ async function remember(projectId: number, handle: string, sub: string, body: st
   ).catch(() => {})
 }
 
+/**
+ * Instrucciones propias del tablero, escritas por el equipo. Se añaden al prompt de cada
+ * turno: son las reglas de la casa ("en este tablero nada se cierra sin comentario"), y
+ * por eso viven por proyecto y no en la persona del agente, que es compartida.
+ */
+export const getBoardInstructionsFn = createServerFn({ method: 'GET' })
+  .validator((d: { projectId: number }) => d)
+  .handler(async ({ data }) => {
+    await ensureSchema()
+    const rows = await dbq('SELECT v FROM task_config WHERE k = ?', [`instructions:${data.projectId}`])
+    return { text: rows[0]?.v ?? '' }
+  })
+
+export const setBoardInstructionsFn = createServerFn({ method: 'POST' })
+  .validator((d: { projectId: number; text: string }) => d)
+  .handler(async ({ data }) => {
+    await ensureSchema()
+    await dbq(
+      `INSERT INTO task_config (k, v, updated_at) VALUES (?, ?, unixepoch())
+       ON CONFLICT(k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at`,
+      [`instructions:${data.projectId}`, data.text.slice(0, 4000)]
+    )
+    return { ok: true as const }
+  })
+
+/** Lo que el agente sabe de fábrica en un tablero. Se enseña en Ajustes, sin poder tocarlo. */
+export const baseInstructionsFn = createServerFn({ method: 'GET' })
+  .validator((d: { projectName: string }) => d)
+  .handler(async ({ data }) => ({
+    text: systemPrompt(data.projectName, { name: 'quien te escribe', handle: '@handle' }, ''),
+  }))
+
 /** Historial de la conversación con ESE agente en ESE tablero. */
 export const getAgentHistoryFn = createServerFn({ method: 'GET' })
   .validator((d: { projectId: number; handle: string }) => d)
@@ -99,7 +131,7 @@ async function buildParts(
   return out
 }
 
-function systemPrompt(projectName: string, who: { name: string; handle: string }): string {
+function systemPrompt(projectName: string, who: { name: string; handle: string }, boardRules: string): string {
   return [
     `Estás dentro de Ghosty Tasks, en el tablero "${projectName}".`,
     // Quién habla: sin esto preguntaba "¿cuál de los miembros eres tú?" cuando alguien
@@ -118,7 +150,11 @@ function systemPrompt(projectName: string, who: { name: string; handle: string }
     `Las descripciones de las tareas son MARKDOWN, no HTML: usa ## títulos, **negritas**, listas con "-", > citas y \`código\`.`,
     `Hoy es ${new Date().toISOString().slice(0, 10)}: úsalo para calcular vencimientos ("en dos semanas" = suma los días).`,
     `Responde en español, breve, y menciona las tareas por su título, no por su id.`,
-  ].join(' ')
+    // Lo que el equipo pidió para ESTE tablero. Va al final: pesa más que lo genérico.
+    boardRules.trim() ? `Reglas de este tablero, respétalas: ${boardRules.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 // Una imagen arrastrada al drawer se guarda en el storage del workspace (el de Teams) y
@@ -130,6 +166,7 @@ async function runAgentTurn(opts: {
   userSub: string
   userName: string
   who: { name: string; handle: string }
+  boardRules: string
   parts: MediaPart[]
   projectId: number
   projectName: string
@@ -159,7 +196,7 @@ async function runAgentTurn(opts: {
     sender: opts.userName,
     text: opts.message,
     parts: opts.parts,
-    appendSystemPrompt: systemPrompt(opts.projectName, opts.who),
+    appendSystemPrompt: systemPrompt(opts.projectName, opts.who, opts.boardRules),
     toolToken: mintToolToken(opts.userSub, opts.projectId),
     toolsUrl: `${opts.origin}/api/agent/tools`,
   })
@@ -265,6 +302,7 @@ export const askAgentFn = createServerFn({ method: 'POST' })
       userSub: user.sub,
       userName: user.name,
       who: { name: me?.name ?? user.name, handle: me?.handle ?? '' },
+      boardRules: (await dbq('SELECT v FROM task_config WHERE k = ?', [`instructions:${data.projectId}`]))[0]?.v ?? '',
       parts: await buildParts(data.attachments ?? []),
       projectId: data.projectId,
       projectName: proj[0]?.name ?? 'este tablero',

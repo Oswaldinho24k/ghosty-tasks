@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Trash2, Users, UserMinus } from 'lucide-react'
+import { X, Trash2, Users, UserMinus, Bot, ChevronDown } from 'lucide-react'
 import { motion } from 'motion/react'
 import { registerModalEsc } from '../utils/modal-esc'
 import { Rocket, Layers, Target, Palette } from 'lucide-react'
@@ -9,6 +9,7 @@ import type { Project } from '../server/projects'
 import { removeProjectMemberFn } from '../server/members'
 import { MemberAvatar } from './MemberAvatar'
 import { WorkspaceMembersModal } from './WorkspaceMembersModal'
+import { getBoardInstructionsFn, setBoardInstructionsFn, baseInstructionsFn } from '../server/agent'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 
@@ -240,6 +241,8 @@ export function ProjectSettingsPanel({
 
         <WorkspaceMembersModal open={membersOpen} onClose={() => setMembersOpen(false)} members={members} />
 
+        <AgentInstructions projectId={project.id} projectName={project.name} />
+
         {/* Danger zone */}
         {isOwner && (
           <section>
@@ -289,5 +292,83 @@ export function ProjectSettingsPanel({
         </div>
       )}
     </motion.div>
+  )
+}
+
+/**
+ * Lo que Ghosty sabe en ESTE tablero. Dos capas a propósito:
+ *
+ * - **De fábrica** (solo lectura): la plomería —qué tools tiene, que las descripciones son
+ *   markdown, quién le habla—. Se enseña porque cuando el agente hace algo raro la primera
+ *   pregunta es "¿qué le dijeron?", y hasta hoy la respuesta vivía sólo en el código.
+ * - **Reglas del tablero** (editables): las de la casa. Van al FINAL del prompt, así que
+ *   pesan más que lo genérico.
+ */
+function AgentInstructions({ projectId, projectName }: { projectId: number; projectName: string }) {
+  const [text, setText] = useState('')
+  const [saved, setSaved] = useState('')
+  const [base, setBase] = useState<string | null>(null)
+  const [showBase, setShowBase] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    getBoardInstructionsFn({ data: { projectId } })
+      .then((r) => { setText(r.text); setSaved(r.text) })
+      .catch(() => {})
+  }, [projectId])
+
+  const save = async () => {
+    if (text === saved) return
+    setSaving(true)
+    try {
+      await setBoardInstructionsFn({ data: { projectId, text } })
+      setSaved(text)
+      toast.success('Instrucciones guardadas')
+    } catch {
+      toast.error('No se pudieron guardar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section>
+      <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted">
+        <Bot size={13} /> Ghosty en este tablero
+      </p>
+
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={save}
+        rows={4}
+        placeholder={'Reglas de la casa. Ej.: "nada pasa a Done sin comentario", "las tareas de soporte van con prioridad alta".'}
+        className="w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-muted/60 focus:border-brand"
+      />
+      <p className="mt-1 text-[11px] text-muted">
+        {saving ? 'Guardando…' : 'Se aplican en cada turno del agente en este tablero.'}
+      </p>
+
+      <button
+        onClick={async () => {
+          if (!base) {
+            try {
+              const r = await baseInstructionsFn({ data: { projectName } })
+              setBase(r.text)
+            } catch { return }
+          }
+          setShowBase((v) => !v)
+        }}
+        className="mt-3 inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink"
+      >
+        <ChevronDown size={13} className={`transition-transform ${showBase ? 'rotate-180' : ''}`} />
+        Lo que ya sabe de fábrica
+      </button>
+      {showBase && base && (
+        <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2/50 p-3 text-[11px] leading-relaxed text-muted">
+          {base}
+        </pre>
+      )}
+    </section>
   )
 }
