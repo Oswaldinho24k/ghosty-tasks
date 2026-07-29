@@ -14,6 +14,22 @@ type Row = Record<string, string | null>;
 
 const PRIORITIES = ["urgent", "high", "medium", "low"];
 
+/**
+ * Fecha de vencimiento en epoch (segundos). Acepta ISO ("2026-08-15") y las formas en las
+ * que la gente habla: "hoy", "mañana", "none" para quitarla.
+ */
+function parseDue(v: string): number | null {
+  const q = v.trim().toLowerCase();
+  if (!q || q === "none" || q === "ninguna" || q === "sin fecha") return null;
+  const day = 86400;
+  const midnight = Math.floor(new Date().setHours(0, 0, 0, 0) / 1000);
+  if (q === "hoy" || q === "today") return midnight;
+  if (q === "mañana" || q === "manana" || q === "tomorrow") return midnight + day;
+  const m = q.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return Math.floor(new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`).getTime() / 1000);
+  throw new ActionInputError(`no entiendo la fecha "${v}". Usa AAAA-MM-DD, "hoy" o "mañana"`);
+}
+
 async function taskOf(projectId: number, ref: number | string): Promise<Row> {
   // Acepta "GST-4", "#4" o 4: la gente le habla al agente con la referencia que ve en la
   // tarjeta, no con el id interno.
@@ -186,8 +202,9 @@ const createTask = defineAction({
       description: 'A quién se asigna: nombre, @handle, correo — o "yo" para quien te está hablando',
     },
     labels: { type: "string[]", description: "Etiquetas a ponerle" },
+    due: { type: "string", description: 'Fecha de vencimiento: AAAA-MM-DD, "hoy" o "mañana"' },
   },
-  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee?: string; labels?: string[] }) {
+  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee?: string; labels?: string[]; due?: string }) {
     let columnId: number;
     if (input.column) {
       columnId = (await columnByName(ctx.projectId, input.column)).id;
@@ -213,6 +230,7 @@ const createTask = defineAction({
       description: input.description,
       priority: input.priority,
       assignee_sub: assigneeSub,
+      due_date: input.due ? parseDue(input.due) ?? undefined : undefined,
     });
     if (input.labels?.length) {
       await setLabelsOn(ctx, task.id, input.labels, []);
@@ -258,8 +276,12 @@ const updateTask = defineAction({
       type: "string",
       description: 'A quién se asigna: nombre, @handle, correo, "yo" — o "none" para dejarla sin asignar',
     },
+    due: {
+      type: "string",
+      description: 'Vencimiento: AAAA-MM-DD, "hoy", "mañana" — o "none" para quitarlo',
+    },
   },
-  async run(ctx, input: { id: string; title?: string; description?: string; priority?: string; status?: string; assignee?: string }) {
+  async run(ctx, input: { id: string; title?: string; description?: string; priority?: string; status?: string; assignee?: string; due?: string }) {
     const t = await taskOf(ctx.projectId, input.id);
     const id = num(t.id);
     let assignee: string | null | undefined;
@@ -279,6 +301,7 @@ const updateTask = defineAction({
       priority: input.priority,
       status: input.status,
       assignee_sub: assignee,
+      due_date: input.due !== undefined ? parseDue(input.due) : undefined,
     });
     return { ok: true, id };
   },

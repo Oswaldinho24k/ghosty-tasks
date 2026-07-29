@@ -115,6 +115,7 @@ function systemPrompt(projectName: string, who: { name: string; handle: string }
     `Úsalas en vez de describir lo que harías: si te piden mover una tarea, muévela.`,
     `Antes de actuar sobre "la tarea de alguien" o un nombre de columna, resuélvelo con find_tasks o list_board — no inventes ids.`,
     `Si algo es ambiguo (varias tareas coinciden, una etiqueta que no existe), PREGUNTA en vez de elegir por tu cuenta.`,
+    `Hoy es ${new Date().toISOString().slice(0, 10)}: úsalo para calcular vencimientos ("en dos semanas" = suma los días).`,
     `Responde en español, breve, y menciona las tareas por su título, no por su id.`,
   ].join(' ')
 }
