@@ -195,7 +195,11 @@ const createTask = defineAction({
   schema: {
     title: { type: "string", description: "Título", required: true },
     column: { type: "string", description: "Nombre de la columna (por defecto, la primera)" },
-    description: { type: "string", description: "Descripción" },
+    description: {
+      type: "string",
+      description:
+        "Descripción en MARKDOWN (## títulos, **negritas**, listas con -, > citas, `código`). Nada de HTML: el editor guarda markdown.",
+    },
     priority: { type: "string", description: "Prioridad", enum: PRIORITIES },
     assignee: {
       type: "string",
@@ -269,7 +273,10 @@ const updateTask = defineAction({
   schema: {
     id: { type: "string", description: 'Referencia de la tarea, como aparece en la tarjeta ("GST-4"); también acepta el número', required: true },
     title: { type: "string", description: "Nuevo título" },
-    description: { type: "string", description: "Nueva descripción" },
+    description: {
+      type: "string",
+      description: "Nueva descripción en MARKDOWN (no HTML)",
+    },
     priority: { type: "string", description: "Prioridad", enum: PRIORITIES },
     status: { type: "string", description: "Estado", enum: ["open", "done"] },
     assignee: {

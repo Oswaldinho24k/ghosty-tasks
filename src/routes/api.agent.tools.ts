@@ -55,6 +55,12 @@ export const Route = createFileRoute("/api/agent/tools")({
               { sub: claims.sub, projectId: claims.projectId },
               input as never
             );
+            // Contar aquí lo que de verdad pasó: en code-mode el agente escribe UN script
+            // que llama a varias herramientas, y el worker lo reporta como una sola
+            // acción ("Actualizó una tarea" cuando actualizó cuatro). Este endpoint sí ve
+            // cada llamada, así que es quien puede decirlo.
+            const { publish, ch } = await import("../server/bus.server");
+            publish(ch.user(claims.sub), { t: "agent:tool", turnId: "", name: action.name });
             return json({ ok: true, result });
           } catch (e) {
             // Un error de entrada es información para el agente (puede corregir y

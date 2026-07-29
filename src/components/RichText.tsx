@@ -38,7 +38,10 @@ export function RichText({
       StarterKit.configure({ link: { openOnClick: false, autolink: false } }),
       Placeholder.configure({ placeholder: placeholder ?? 'Escribe…' }),
       MarkdownExt.configure({
-        html: false,
+        // Se acepta HTML al PARSEAR: si algo llega con etiquetas (el agente lo hizo una
+        // vez), se convierte en nodos de verdad en vez de enseñarse crudo. Al guardar
+        // siempre sale markdown.
+        html: true,
         bulletListMarker: '-',
         linkify: false,
         breaks: false,

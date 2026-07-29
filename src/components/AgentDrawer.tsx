@@ -208,9 +208,13 @@ export function AgentDrawer({
         prev.map(m => m.id === ev.turnId ? { ...m, content: m.content + ev.value } : m)
       )
     } else if (ev.t === 'agent:tool') {
-      setMessages(prev =>
-        prev.map(m => m.id === ev.turnId ? { ...m, tools: [...(m.tools ?? []), ev.name] } : m)
-      )
+      // Sin turnId (lo emite el endpoint de herramientas, que no lo conoce) se cuelga del
+      // turno en vuelo: es el único que puede estar usando herramientas.
+      setMessages(prev => {
+        const targetId = ev.turnId || [...prev].reverse().find(m => m.streaming)?.id
+        if (!targetId) return prev
+        return prev.map(m => (m.id === targetId ? { ...m, tools: [...(m.tools ?? []), ev.name] } : m))
+      })
     } else if (ev.t === 'agent:done') {
       setMessages(prev =>
         prev.map(m =>
