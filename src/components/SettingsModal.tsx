@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { X, Link2, Crown, Shield, Sun, Moon, Monitor } from 'lucide-react'
+import { X, Crown, Shield, Sun, Moon, Monitor } from 'lucide-react'
 import { me } from '../server/auth'
 import { listWorkspaceUsersFn } from '../server/members'
 import { MemberAvatar } from './MemberAvatar'
@@ -9,7 +9,6 @@ import {
 } from '../utils/theme'
 import { registerModalEsc } from '../utils/modal-esc'
 import { useSyncExternalStore } from 'react'
-import { teamsUrl } from '../utils/teams'
 
 type Tab = 'perfil' | 'apariencia' | 'workspace'
 type UserInfo = Awaited<ReturnType<typeof me>>
@@ -275,21 +274,12 @@ export function SettingsModal({
                         </div>
                       </div>
 
-                      {user?.isOwner && (
-                        <div>
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">Equipo</p>
-                          <p className="mb-2 text-sm text-muted">
-                            Son los del equipo en Ghosty Teams: se agregan ahí, en Ajustes → Invitar miembros.
-                          </p>
-                          <a
-                            href={teamsUrl()}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-ink hover:bg-surface-2 transition-colors"
-                          >
-                            <Link2 size={14} />
-                            Abrir el equipo en Teams
-                          </a>
-                        </div>
-                      )}
+                      {/* La lista de arriba YA es el padrón; agregar gente es cosa del
+                          workspace, así que aquí solo se dice dónde (sin sacar al usuario). */}
+                      <p className="text-xs text-muted">
+                        El equipo es el mismo que en Ghosty Teams: quien entra ahí entra aquí.
+                        Se invita desde el workspace, en Ajustes → Invitar miembros.
+                      </p>
                     </div>
                   )}
                 </>

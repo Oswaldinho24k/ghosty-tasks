@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { dbq, num } from "../dbq.server";
 import { ensureSchema } from "./schema.server";
+import { localAvatar } from "../utils/avatar";
 
 export type Project = {
   id: number;
@@ -158,7 +159,7 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
       members: members.map((r) => ({
         sub: r.sub ?? "",
         name: r.name ?? "",
-        avatar: r.avatar ?? "",
+        avatar: localAvatar(r.avatar),
         handle: r.handle ?? "",
         role: r.role ?? "member",
       })),

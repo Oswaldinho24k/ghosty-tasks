@@ -1,9 +1,8 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { me } from '../server/auth'
 import { listWorkspaceUsersFn } from '../server/members'
-import { Users, Link2, Crown, Shield } from 'lucide-react'
+import { Users, Crown, Shield } from 'lucide-react'
 import { MemberAvatar } from '../components/MemberAvatar'
-import { teamsUrl } from '../utils/teams'
 
 export const Route = createFileRoute('/settings')({
   loader: async () => {
@@ -76,24 +75,12 @@ function Settings() {
         </div>
       </section>
 
-      {/* Miembros: el padrón es del workspace, y vive en Ghosty Teams */}
-      <section className="rounded-xl border border-border bg-surface-2 p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Link2 size={16} className="text-muted" />
-          <h2 className="text-sm font-semibold text-ink">Agregar miembros</h2>
-        </div>
-        <p className="text-sm text-muted mb-3">
-          El equipo es el mismo que en Ghosty Teams: quien entra ahí entra aquí. Se
-          invita desde el workspace (Ajustes → Invitar miembros), no desde las tareas.
-        </p>
-        <a
-          href={teamsUrl()}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-fg hover:brightness-110 transition-all"
-        >
-          <Users size={14} />
-          Abrir el equipo en Teams
-        </a>
-      </section>
+      {/* La lista de arriba YA es el padrón del workspace; agregar gente es cosa de
+          Ghosty Teams, así que aquí solo se dice dónde. */}
+      <p className="px-1 text-xs text-muted">
+        El equipo es el mismo que en Ghosty Teams: quien entra ahí entra aquí. Se invita
+        desde el workspace, en Ajustes → Invitar miembros.
+      </p>
 
       <div className="pt-2">
         <Link to="/" className="text-sm text-brand hover:underline">← Volver</Link>

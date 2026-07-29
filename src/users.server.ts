@@ -6,6 +6,9 @@ import { workspaceRoster } from "./server/membership.server";
 // identidad que escribe el producto por el que entres primero, y que sirve a los dos
 // para pintar nombre, avatar y @handle.
 import type { Row } from "./dbq.server";
+import { localAvatar } from "./utils/avatar";
+
+export { localAvatar };
 
 export type SessionUser = {
   sub: string;
@@ -16,14 +19,6 @@ export type SessionUser = {
   handle: string;
 };
 
-// El avatar del perfil compartido es una ruta de Teams (`/api/attachment/<id>`), que
-// aquí no existe. Se reescribe al proxy propio, que la pide firmada — ver
-// routes/api.avatar.$id.ts.
-export function localAvatar(av: string | null | undefined): string {
-  const v = av ?? "";
-  const m = v.match(/^\/api\/attachment\/(.+)$/);
-  return m ? `/api/avatar/${m[1]}` : v;
-}
 
 function slugHandle(s: string): string {
   return (
