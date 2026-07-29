@@ -211,6 +211,19 @@ export function AgentDrawer({
   // Tareas mencionadas en lo que llevas escrito (para pintarlas como chips).
   const referenced = tasks.filter((t) => input.includes(taskRef(projectName, t.id)))
 
+  /** Quitar una referencia = borrarla del texto, que es donde vive de verdad. */
+  function unrefTask(id: number) {
+    const ref = taskRef(projectName, id)
+    setInput((prev) =>
+      prev
+        .split(ref)
+        .join('')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trimStart()
+    )
+    inputRef.current?.focus()
+  }
+
   function pickTask(id: number) {
     const ref = taskRef(projectName, id)
     setInput((prev) => prev.replace(/#[^\s#]*$/, `${ref} `))
@@ -617,21 +630,6 @@ export function AgentDrawer({
             ))}
           </div>
         )}
-        {/* Lo que ya referenciaste: se ve como chip, no como texto suelto. */}
-        {referenced.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {referenced.map((t) => (
-              <span
-                key={t.id}
-                className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand"
-                title={t.title}
-              >
-                <span className="font-mono">{taskRef(projectName, t.id)}</span>
-                <span className="max-w-[9rem] truncate opacity-70">{t.title}</span>
-              </span>
-            ))}
-          </div>
-        )}
         {suggestions.length > 0 && (
           <div className="mb-2 overflow-hidden rounded-lg border border-border bg-surface-2 shadow-lg">
             {suggestions.map((t) => (
@@ -648,7 +646,33 @@ export function AgentDrawer({
             ))}
           </div>
         )}
-        <div className="flex items-end gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2 focus-within:border-brand focus-within:ring-1 focus-within:ring-brand transition-colors">
+        <div className="rounded-xl border border-border bg-surface-2 px-3 py-2 focus-within:border-brand focus-within:ring-1 focus-within:ring-brand transition-colors">
+          {/* Las referencias van DENTRO del campo, como el tageo de Teams, y cada una se
+              quita con su ✕. Antes vivían en una tira aparte encima del input: se leían
+              como otra cosa y no había forma de deshacerlas salvo borrando texto a mano.
+              El texto del textarea sigue siendo la fuente de verdad; el chip sólo lo pinta. */}
+          {referenced.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap gap-1.5">
+              {referenced.map((t) => (
+                <span
+                  key={t.id}
+                  className="group inline-flex max-w-full items-center gap-1 rounded-md bg-brand/10 py-0.5 pl-1.5 pr-1 text-[10px] text-brand"
+                  title={t.title}
+                >
+                  <span className="font-mono">{taskRef(projectName, t.id)}</span>
+                  <span className="max-w-[9rem] truncate opacity-70">{t.title}</span>
+                  <button
+                    onMouseDown={(e) => { e.preventDefault(); unrefTask(t.id) }}
+                    className="rounded p-0.5 text-brand/60 transition hover:bg-brand/20 hover:text-brand"
+                    aria-label={`Quitar ${taskRef(projectName, t.id)}`}
+                  >
+                    <X size={9} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2">
           <label className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted transition hover:bg-surface-3 hover:text-ink" title="Adjuntar imagen">
             <ImagePlus size={15} />
             <input
@@ -681,6 +705,7 @@ export function AgentDrawer({
           >
             <Send size={13} />
           </button>
+          </div>
         </div>
         <p className="mt-1.5 text-center text-[10px] text-muted">
           Enter para enviar · # para referenciar una tarea · arrastra una imagen
