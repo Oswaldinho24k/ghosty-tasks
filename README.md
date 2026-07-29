@@ -68,6 +68,33 @@ Cómo está construido, y por qué así:
   catálogo que ve el agente — la idea de [agent-native](https://github.com/BuilderIO/agent-native).
   Así el agente no puede hacer nada que la UI no pueda, y el schema no se escribe dos
   veces para luego divergir.
+
+  ```ts
+  // Una definición sirve a todas las superficies: la UI, el agente y el HTTP.
+  const commentTask = defineAction({
+    name: "comment_task",
+    description: "Comenta en una tarea. El comentario queda a nombre de la persona que te pidió el trabajo.",
+    schema: {
+      id: { type: "string", description: 'Referencia como aparece en la tarjeta ("GST-4")', required: true },
+      body: { type: "string", description: "Texto del comentario", required: true },
+    },
+    async run(ctx, input: { id: string; body: string }) {
+      const t = await taskOf(ctx.projectId, input.id);
+      const me = (await listWorkspaceMembers()).find((m) => m.sub === ctx.sub);
+      // La MISMA función que llama el formulario de comentarios: valida permisos,
+      // escribe la bitácora y publica en el bus SSE.
+      const c = await ops.addComment(
+        { sub: ctx.sub, name: me?.name ?? "Alguien", avatar: me?.avatar ?? "" },
+        { task_id: num(t.id), body: input.body }
+      );
+      return { id: c.id };
+    },
+  });
+  ```
+
+  El `ctx` no es decorativo: trae el `sub` de quien pidió el trabajo y el tablero del
+  token, así que el comentario queda a su nombre y una referencia de otro proyecto
+  sencillamente no existe para esa sesión.
 - **Actúa como tú.** El turno lleva un token de capacidad firmado (`sub` + tablero, 15
   min): la bitácora y los comentarios quedan a nombre de quien pidió el trabajo, no de
   "el sistema". El secreto maestro nunca entra a la caja del agente.
