@@ -50,7 +50,7 @@ type Msg = {
   content: string
   streaming: boolean
   created_tasks: Array<{ id: number; title: string; column_id: number }>
-  tools?: string[]
+  tools?: Array<{ name: string; detail?: string }>
 }
 
 function stripJsonBlock(text: string): string {
@@ -62,26 +62,38 @@ function stripJsonBlock(text: string): string {
 // Mismo bloque que en Ghosty Teams: una sola herramienta va en una línea (el header y
 // la fila dirían lo mismo), varias se agrupan en una tarjeta colapsable con contador.
 // Abierto por defecto: lo que se quiere es ver qué está tocando en el tablero.
-function ToolGroup({ names, running }: { names: string[]; running: boolean }) {
+function ToolGroup({ names, running }: { names: Array<{ name: string; detail?: string }>; running: boolean }) {
   const [open, setOpen] = useState(true)
   if (!names.length) return null
 
-  const line = (name: string, last: boolean) => (
+  // Seis veces "Actualizó una tarea" no dice nada. Se agrupan las iguales con su contador
+  // y, cuando se sabe, con la tarea a la que le tocaron.
+  const grouped: Array<{ label: string; detail?: string; n: number }> = []
+  for (const t of names) {
+    const label = toolLabel(t.name)
+    const last = grouped[grouped.length - 1]
+    if (last && last.label === label && last.detail === t.detail) last.n++
+    else grouped.push({ label, detail: t.detail, n: 1 })
+  }
+
+  const line = (g: { label: string; detail?: string; n: number }, last: boolean) => (
     <>
       {running && last ? (
         <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-muted/40 border-t-brand" />
       ) : (
         <Check size={13} className="shrink-0 text-emerald-500" />
       )}
-      <span className="truncate">{toolLabel(name)}</span>
+      <span className="truncate">{g.label}</span>
+      {g.detail && <span className="truncate font-mono text-[10px] text-muted/70">· {g.detail}</span>}
+      {g.n > 1 && <span className="shrink-0 text-[10px] text-muted/70">×{g.n}</span>}
     </>
   )
 
-  if (names.length === 1) {
+  if (grouped.length === 1) {
     return (
       <div className="mb-1.5 flex max-w-md items-center gap-2 rounded-lg border border-border bg-surface-2/50 px-2.5 py-1.5 text-xs text-ink">
         <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5 shrink-0" />
-        {line(names[0], true)}
+        {line(grouped[0], true)}
       </div>
     )
   }
@@ -105,9 +117,9 @@ function ToolGroup({ names, running }: { names: string[]; running: boolean }) {
       </button>
       {open && (
         <div className="border-t border-border/60 px-2.5 py-1.5">
-          {names.map((n, i) => (
-            <div key={`${n}-${i}`} className="flex items-center gap-2 py-0.5 text-xs text-muted">
-              {line(n, i === names.length - 1)}
+          {grouped.map((g, i) => (
+            <div key={`${g.label}-${g.detail ?? ''}-${i}`} className="flex items-center gap-2 py-0.5 text-xs text-muted">
+              {line(g, i === grouped.length - 1)}
             </div>
           ))}
         </div>
@@ -213,7 +225,9 @@ export function AgentDrawer({
       setMessages(prev => {
         const targetId = ev.turnId || [...prev].reverse().find(m => m.streaming)?.id
         if (!targetId) return prev
-        return prev.map(m => (m.id === targetId ? { ...m, tools: [...(m.tools ?? []), ev.name] } : m))
+        return prev.map(m =>
+          m.id === targetId ? { ...m, tools: [...(m.tools ?? []), { name: ev.name, detail: ev.detail }] } : m
+        )
       })
     } else if (ev.t === 'agent:done') {
       setMessages(prev =>

@@ -24,7 +24,7 @@ export type WwEvent =
   | { t: "presence"; sub: string; name: string; status: "online" | "offline" }
   | { t: "presence:init"; online: string[] }
   | { t: "agent:chunk"; turnId: string; value: string }
-  | { t: "agent:tool"; turnId: string; name: string }
+  | { t: "agent:tool"; turnId: string; name: string; detail?: string }
   | { t: "agent:done"; turnId: string; value: string; created_tasks: Array<{ id: number; title: string; column_id: number }> };
 
 type Listener = (ev: WwEvent) => void;

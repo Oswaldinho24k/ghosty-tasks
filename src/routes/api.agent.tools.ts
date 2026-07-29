@@ -60,7 +60,13 @@ export const Route = createFileRoute("/api/agent/tools")({
             // acción ("Actualizó una tarea" cuando actualizó cuatro). Este endpoint sí ve
             // cada llamada, así que es quien puede decirlo.
             const { publish, ch } = await import("../server/bus.server");
-            publish(ch.user(claims.sub), { t: "agent:tool", turnId: "", name: action.name });
+            // Con el detalle (qué tarea) la lista deja de ser seis veces la misma línea.
+            const r = result as { ref?: string; title?: string } | null;
+            const detail =
+              r?.ref ??
+              r?.title ??
+              (typeof (input as { id?: string }).id === "string" ? (input as { id: string }).id : undefined);
+            publish(ch.user(claims.sub), { t: "agent:tool", turnId: "", name: action.name, detail });
             return json({ ok: true, result });
           } catch (e) {
             // Un error de entrada es información para el agente (puede corregir y
