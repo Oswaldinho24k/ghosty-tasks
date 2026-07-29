@@ -76,5 +76,37 @@ export function RichText({
     editor?.setEditable(editable)
   }, [editable, editor])
 
-  return <EditorContent editor={editor} />
+  if (!editor) return null
+
+  // Barra de formato: sin ella el editor se ve igual que el textarea de antes y nadie
+  // descubre que hay negritas o listas. Aparece al enfocar para no ensuciar la lectura.
+  const tools = [
+    { on: 'bold', run: () => editor.chain().focus().toggleBold().run(), label: 'B', className: 'font-bold' },
+    { on: 'italic', run: () => editor.chain().focus().toggleItalic().run(), label: 'i', className: 'italic' },
+    { on: 'bulletList', run: () => editor.chain().focus().toggleBulletList().run(), label: '•', className: '' },
+    { on: 'orderedList', run: () => editor.chain().focus().toggleOrderedList().run(), label: '1.', className: '' },
+    { on: 'code', run: () => editor.chain().focus().toggleCode().run(), label: '</>', className: 'font-mono text-[10px]' },
+  ]
+
+  return (
+    <div className="group">
+      <div className="mb-1 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        {tools.map((t) => (
+          <button
+            key={t.on}
+            type="button"
+            // mousedown + preventDefault: con click, el editor pierde el foco antes de
+            // aplicar el formato (y dispararía el guardado del onBlur).
+            onMouseDown={(e) => { e.preventDefault(); t.run() }}
+            className={`h-6 w-6 rounded text-xs transition-colors ${t.className} ${
+              editor.isActive(t.on) ? 'bg-brand/15 text-brand' : 'text-muted hover:bg-surface-3 hover:text-ink'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <EditorContent editor={editor} />
+    </div>
+  )
 }
