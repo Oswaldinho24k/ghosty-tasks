@@ -4,13 +4,12 @@ import { X, Send, Sparkles, CheckSquare2, ChevronDown, Check, ImagePlus } from '
 import { askAgentFn, listAgentsFn, getProjectAgentFn, setProjectAgentFn, getAgentHistoryFn } from '../server/agent'
 import { MemberAvatar } from './MemberAvatar'
 import { taskRef } from '../utils/taskRef'
-import { useProject } from '../utils/projectContext'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize from 'rehype-sanitize'
 import { registerModalEsc } from '../utils/modal-esc'
 import type { WwEvent } from '../server/bus.server'
-import type { Column } from '../server/projects'
+import type { Column, Task } from '../server/projects'
 
 type AgentEvent =
   | Extract<WwEvent, { t: 'agent:chunk' }>
@@ -116,6 +115,11 @@ export function AgentDrawer({
   onClose,
   projectId,
   columns,
+  // Por PROPS, no por contexto: este drawer se monta FUERA del ProjectContext.Provider
+  // (que solo envuelve al <Outlet/>), así que un useProject() aquí revienta la pantalla
+  // entera con "useProject must be inside ProjectShell". Le pasó al agregar el "#".
+  tasks,
+  projectName,
   seed,
   onSeedUsed,
   onRegisterEventCallback,
@@ -123,6 +127,8 @@ export function AgentDrawer({
   onClose: () => void
   projectId: number
   columns: Column[]
+  tasks: Task[]
+  projectName: string
   /** Texto con el que abrir el input (p. ej. la referencia de una tarea). */
   seed?: string | null
   onSeedUsed?: () => void
@@ -145,8 +151,6 @@ export function AgentDrawer({
 
   const colMap = new Map(columns.map(c => [c.id, c.name]))
   const current = agents.find((a) => a.handle === handle) ?? agents[0] ?? null
-  const { tasks, projectName } = useProject()
-
   // Sugerencias para el "#": por referencia o por título, como las menciones de Teams.
   const suggestions =
     mentionQuery == null

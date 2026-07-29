@@ -406,6 +406,8 @@ function ProjectShell() {
       <AnimatePresence>
         {agentOpen && (
           <AgentDrawer
+            tasks={tasks}
+            projectName={project.name}
             seed={agentSeed}
             onSeedUsed={() => setAgentSeed(null)}
             onClose={() => setAgentOpen(false)}
