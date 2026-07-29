@@ -1,170 +1,155 @@
 import { createServerFn } from '@tanstack/react-start'
-import { dbq, num } from '../dbq.server'
+import { dbq } from '../dbq.server'
+import { ensureSchema } from './schema.server'
 
-const FLEET_BASE = process.env.EASYBITS_BASE_URL ?? 'https://www.easybits.cloud'
+// El agente de un tablero es UN AGENTE DEL EQUIPO: el mismo que ya activaste en Ghosty
+// Teams (`gc_agents`, misma DB), corriendo en el runtime nativo de Ghosty Studio.
+//
+// Antes esto llamaba a EasyBits con un fleet id/token propios que no existían en la
+// caja: el drawer respondía "el agente no está configurado" y punto. Y lo único que
+// sabía hacer era crear tareas por un bloque JSON que el server sacaba con un regex,
+// insertando en la tabla por su cuenta (sin bitácora, sin ver la UI moverse).
+//
+// Ahora las acciones son tools de verdad: viven en `actions/board.actions.ts`, las
+// consume el agente por `/api/agent/tools`, y son las MISMAS que usa la interfaz.
 
-type ProjectCtx = {
-  projectName: string
-  userName: string
-  columnList: Array<{ id: number; name: string; count: number }>
-  memberList: Array<{ name: string }>
-  totalTasks: number
-  urgentTasks: number
+async function session() {
+  const { useSession } = await import('@tanstack/react-start/server')
+  const { sessionConfig } = await import('./session.server')
+  return useSession<{ user?: { sub: string; name: string } }>(sessionConfig())
 }
 
-type TaskSpec = { title: string; column_id: number; priority?: string }
+/** Los agentes que se pueden elegir en este tablero. */
+export const listAgentsFn = createServerFn({ method: 'GET' }).handler(async () => {
+  await ensureSchema()
+  const { listAgents } = await import('./agent-runtime.server')
+  const agents = await listAgents()
+  return agents.map((a) => ({ handle: a.handle, name: a.name, avatar: a.avatar }))
+})
 
-async function buildProjectContext(projectId: number, userSub: string): Promise<ProjectCtx> {
-  const [project, columns, tasks, members, currentUser] = await Promise.all([
-    dbq('SELECT name FROM task_projects WHERE id = ?', [projectId]),
-    dbq('SELECT id, name FROM task_columns WHERE project_id = ? ORDER BY position', [projectId]),
-    dbq('SELECT column_id, priority FROM task_tasks WHERE project_id = ? AND parent_id IS NULL', [projectId]),
-    dbq(
-      `SELECT u.name FROM task_project_members m
-       JOIN gc_users u ON u.sub = m.user_sub
-       WHERE m.project_id = ?`,
-      [projectId]
-    ),
-    dbq('SELECT name FROM gc_users WHERE sub = ?', [userSub]),
-  ])
+/** Agente elegido para un tablero. Se guarda en la DB, no en el navegador. */
+export const getProjectAgentFn = createServerFn({ method: 'GET' })
+  .validator((d: { projectId: number }) => d)
+  .handler(async ({ data }) => {
+    await ensureSchema()
+    const rows = await dbq('SELECT v FROM task_config WHERE k = ?', [`agent:${data.projectId}`])
+    return { handle: rows[0]?.v ?? null }
+  })
 
-  const colMap = new Map<number, { name: string; count: number }>(
-    columns.map(c => [num(c.id), { name: c.name ?? '', count: 0 }])
-  )
+export const setProjectAgentFn = createServerFn({ method: 'POST' })
+  .validator((d: { projectId: number; handle: string }) => d)
+  .handler(async ({ data }) => {
+    await ensureSchema()
+    await dbq(
+      `INSERT INTO task_config (k, v, updated_at) VALUES (?, ?, unixepoch())
+       ON CONFLICT(k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at`,
+      [`agent:${data.projectId}`, data.handle]
+    )
+    return { ok: true as const }
+  })
 
-  let urgentTasks = 0
-  for (const t of tasks) {
-    const col = colMap.get(num(t.column_id))
-    if (col) col.count++
-    if (t.priority === 'urgent') urgentTasks++
-  }
-
-  return {
-    projectName: project[0]?.name ?? 'Proyecto',
-    userName: currentUser[0]?.name ?? 'Usuario',
-    columnList: columns.map(c => ({
-      id: num(c.id),
-      name: c.name ?? '',
-      count: colMap.get(num(c.id))?.count ?? 0,
-    })),
-    memberList: members.map(m => ({ name: m.name ?? '' })),
-    totalTasks: tasks.length,
-    urgentTasks,
-  }
+// `task_ghosty_messages` estaba declarada y nadie la usaba: la conversación vivía solo
+// en el cliente y se perdía al recargar. Se reusa con `task_id` NEGATIVO = conversación
+// del tablero (los ids de tarea son positivos), y `sender_name` = handle del agente.
+async function remember(projectId: number, handle: string, sub: string, body: string, kind: 'user' | 'agent') {
+  if (!body) return
+  await dbq(
+    `INSERT INTO task_ghosty_messages (task_id, sender_sub, sender_name, body, kind)
+     VALUES (?, ?, ?, ?, ?)`,
+    [-projectId, sub, handle, body, kind]
+  ).catch(() => {})
 }
 
-function buildSystemPrompt(ctx: ProjectCtx): string {
-  const colLines = ctx.columnList
-    .map(c => `  - "${c.name}" (column_id: ${c.id}, ${c.count} tareas)`)
-    .join('\n')
-  const memberLines = ctx.memberList.map(m => `  - ${m.name}`).join('\n') || '  (sin miembros)'
+/** Historial de la conversación con ESE agente en ESE tablero. */
+export const getAgentHistoryFn = createServerFn({ method: 'GET' })
+  .validator((d: { projectId: number; handle: string }) => d)
+  .handler(async ({ data }) => {
+    await ensureSchema()
+    const rows = await dbq(
+      `SELECT body, kind, created_at FROM task_ghosty_messages
+        WHERE task_id = ? AND sender_name = ?
+        ORDER BY created_at ASC LIMIT 100`,
+      [-data.projectId, data.handle]
+    )
+    return rows.map((r) => ({
+      role: r.kind === 'agent' ? ('agent' as const) : ('user' as const),
+      body: r.body ?? '',
+      at: Number(r.created_at ?? 0),
+    }))
+  })
 
-  return `Eres Ghosty, el asistente AI del proyecto "${ctx.projectName}" en Ghosty Tasks.
-
-ESTADO ACTUAL DEL TABLERO:
-Columnas:
-${colLines}
-Miembros:
-${memberLines}
-Total de tareas: ${ctx.totalTasks}
-Tareas urgentes: ${ctx.urgentTasks}
-
-Puedes crear tareas directamente. Si el usuario te pide crear tareas, incluye al FINAL de tu respuesta un bloque JSON con este formato exacto:
-\`\`\`json
-{"create_tasks": [{"title": "Título de la tarea", "column_id": <número>, "priority": "high"}]}
-\`\`\`
-Valores válidos de priority: urgent, high, medium, low. Omite el campo si no hay prioridad específica.
-IMPORTANTE: Usa solo los column_id del listado de columnas arriba.
-
-Responde siempre en español, de forma concisa y directa. No incluyas el bloque JSON si el usuario no pide crear tareas.`
+function systemPrompt(projectName: string): string {
+  return [
+    `Estás dentro de Ghosty Tasks, en el tablero "${projectName}".`,
+    // Cómo llegar a ellas: el worker es code-mode y las tools de este turno se sirven
+    // por el módulo `connectors` del SDK. Sin esta línea el agente no las busca y
+    // responde que no puede tocar el tablero.
+    `Tus herramientas para ESTE tablero están en /opt/gs-sdk/connectors.mjs: importa ese módulo, llama a list() para ver sus firmas y a run(name, args) para ejecutarlas.`,
+    `Son: list_board, find_tasks, create_task, move_task, update_task, set_labels, comment_task, add_checklist_item, delete_task.`,
+    `Úsalas en vez de describir lo que harías: si te piden mover una tarea, muévela.`,
+    `Antes de actuar sobre "la tarea de alguien" o un nombre de columna, resuélvelo con find_tasks o list_board — no inventes ids.`,
+    `Si algo es ambiguo (varias tareas coinciden, una etiqueta que no existe), PREGUNTA en vez de elegir por tu cuenta.`,
+    `Responde en español, breve, y menciona las tareas por su título, no por su id.`,
+  ].join(' ')
 }
 
-function parseCreateTasks(text: string): TaskSpec[] {
-  const match = text.match(/```(?:json)?\s*(\{[\s\S]*?"create_tasks"[\s\S]*?\})\s*```/)
-  if (!match) return []
-  try {
-    const parsed = JSON.parse(match[1])
-    if (Array.isArray(parsed.create_tasks)) {
-      return (parsed.create_tasks as unknown[]).filter(
-        (t): t is TaskSpec =>
-          typeof (t as TaskSpec).title === 'string' &&
-          typeof (t as TaskSpec).column_id === 'number'
-      )
-    }
-  } catch {}
-  return []
-}
-
-async function runAgentTurn({
-  userSub,
-  projectId,
-  message,
-  turnId,
-  ctx,
-}: {
+async function runAgentTurn(opts: {
   userSub: string
+  userName: string
   projectId: number
+  projectName: string
+  handle: string
   message: string
   turnId: string
-  ctx: ProjectCtx
+  origin: string
 }) {
   const bus = await import('./bus.server')
-  const fleetId = process.env.EASYBITS_FLEET_ID
-  const fleetToken = process.env.EASYBITS_FLEET_TOKEN
+  const done = (value: string) =>
+    bus.publish(bus.ch.user(opts.userSub), { t: 'agent:done', turnId: opts.turnId, value, created_tasks: [] })
 
-  if (!fleetId || !fleetToken) {
-    bus.publish(bus.ch.user(userSub), {
-      t: 'agent:done',
-      turnId,
-      value: 'El agente no está configurado. Agrega `EASYBITS_FLEET_ID` y `EASYBITS_FLEET_TOKEN` al `.env`.',
-      created_tasks: [],
-    })
-    return
-  }
+  const { getAgent, runtimeBase, partnerHeaders, taskGroupId } = await import('./agent-runtime.server')
+  const agent = await getAgent(opts.handle)
+  if (!agent) return done('Ese agente ya no está activo en este equipo. Elige otro.')
+
+  const base = await runtimeBase()
+  if (!base) return done('Este workspace no tiene runtime de agentes configurado.')
+
+  const { mintToolToken } = await import('./tool-token.server')
+  // El token acota al invocador Y al tablero: el agente actúa como esta persona, aquí.
+  // Los dos campos viajan SIEMPRE juntos — el worker firma su sesión con las CLAVES del
+  // env del turno, así que un set que oscila le tira el warm en cada mensaje.
+  const body = JSON.stringify({
+    groupId: await taskGroupId(agent, opts.projectId),
+    configGroupId: 'tasks',
+    sender: opts.userName,
+    text: opts.message,
+    appendSystemPrompt: systemPrompt(opts.projectName),
+    toolToken: mintToolToken(opts.userSub, opts.projectId),
+    toolsUrl: `${opts.origin}/api/agent/tools`,
+  })
 
   let res: Response
   try {
-    res = await fetch(`${FLEET_BASE}/api/v2/fleet-agents/${fleetId}/message-stream`, {
+    res = await fetch(`${base}/api/v2/fleet-agents/${agent.fleetId}/message-stream`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${fleetToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        groupId: `ghostytasks_${projectId}_${userSub}`,
-        sender: ctx.userName,
-        text: message,
-        appendSystemPrompt: buildSystemPrompt(ctx),
-      }),
+      headers: await partnerHeaders(body),
+      body,
     })
   } catch {
-    bus.publish(bus.ch.user(userSub), {
-      t: 'agent:done',
-      turnId,
-      value: 'No se pudo conectar con el agente. Verifica tu conexión.',
-      created_tasks: [],
-    })
-    return
+    return done('No pude contactar al agente. Intenta de nuevo.')
   }
-
   if (!res.ok || !res.body) {
-    bus.publish(bus.ch.user(userSub), {
-      t: 'agent:done',
-      turnId,
-      value: `Error del agente (${res.status}). Intenta de nuevo.`,
-      created_tasks: [],
-    })
-    return
+    return done(`El agente respondió ${res.status}. Intenta de nuevo.`)
   }
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
-  let fullText = ''
+  let full = ''
 
   while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+    const { done: fin, value } = await reader.read()
+    if (fin) break
     buf += decoder.decode(value, { stream: true })
     const lines = buf.split('\n')
     buf = lines.pop() ?? ''
@@ -173,79 +158,64 @@ async function runAgentTurn({
       try {
         const ev = JSON.parse(line.slice(6))
         if (ev.type === 'chunk' && typeof ev.value === 'string') {
-          fullText += ev.value
-          bus.publish(bus.ch.user(userSub), { t: 'agent:chunk', turnId, value: ev.value })
+          full += ev.value
+          bus.publish(bus.ch.user(opts.userSub), { t: 'agent:chunk', turnId: opts.turnId, value: ev.value })
+        } else if (ev.type === 'tool' && ev.phase === 'start' && typeof ev.name === 'string') {
+          // Lo que hace, mientras lo hace: sin esto el drawer se queda mudo justo
+          // cuando el agente está moviendo cosas en el tablero.
+          bus.publish(bus.ch.user(opts.userSub), { t: 'agent:tool', turnId: opts.turnId, name: ev.name })
+        } else if (ev.type === 'done' && typeof ev.value === 'string' && ev.value) {
+          full = ev.value
+        } else if (ev.type === 'error') {
+          full = full || `⚠️ ${ev.message ?? 'el agente falló'}`
         }
       } catch {}
     }
   }
 
-  // Create tasks the agent requested
-  const specs = parseCreateTasks(fullText)
-  const created: Array<{ id: number; title: string; column_id: number }> = []
-
-  for (const spec of specs) {
-    try {
-      const posRows = await dbq(
-        'SELECT COALESCE(MAX(position), 0) as m FROM task_tasks WHERE column_id = ? AND parent_id IS NULL',
-        [spec.column_id]
-      )
-      const position = parseFloat(posRows[0]?.m ?? '0') + 1000
-      const rows = await dbq(
-        `INSERT INTO task_tasks (project_id, column_id, title, priority, position, created_by, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, unixepoch()) RETURNING *`,
-        [projectId, spec.column_id, spec.title, spec.priority ?? null, position, userSub]
-      )
-      const row = rows[0]
-      if (row) {
-        const taskId = num(row.id)
-        created.push({ id: taskId, title: spec.title, column_id: spec.column_id })
-        bus.publish(bus.ch.project(projectId), {
-          t: 'task:created',
-          task: {
-            id: taskId,
-            project_id: projectId,
-            column_id: spec.column_id,
-            title: spec.title,
-            priority: spec.priority ?? null,
-            assignee_sub: null,
-            position,
-            status: 'open',
-          },
-        })
-      }
-    } catch {
-      // Skip failed task silently
-    }
-  }
-
-  bus.publish(bus.ch.user(userSub), {
-    t: 'agent:done',
-    turnId,
-    value: fullText,
-    created_tasks: created,
-  })
+  await remember(opts.projectId, opts.handle, opts.userSub, full, 'agent')
+  done(full)
 }
 
 export const askAgentFn = createServerFn({ method: 'POST' })
-  .validator((d: { projectId: number; message: string; turnId: string }) => d)
+  .validator((d: { projectId: number; message: string; turnId: string; handle?: string }) => d)
   .handler(async ({ data }) => {
-    const { useSession } = await import('@tanstack/react-start/server')
-    const { sessionConfig } = await import('./session.server')
-    const s = await useSession<{ user?: { sub: string; name: string } }>(sessionConfig())
+    await ensureSchema()
+    const s = await session()
     const user = s.data.user
     if (!user) throw new Error('unauthorized')
 
-    const ctx = await buildProjectContext(data.projectId, user.sub)
+    const { listAgents } = await import('./agent-runtime.server')
+    const agents = await listAgents()
+    if (!agents.length) {
+      throw new Error('Este equipo no tiene agentes activados. Se activan en Ghosty Teams → Ajustes → Agentes.')
+    }
 
-    // Fire and forget — SSE chunks arrive via /api/stream
+    // El elegido para este tablero; si no hay, el primero del equipo.
+    let handle = data.handle
+    if (!handle) {
+      const rows = await dbq('SELECT v FROM task_config WHERE k = ?', [`agent:${data.projectId}`])
+      handle = rows[0]?.v ?? undefined
+    }
+    const agent = agents.find((a) => a.handle === handle) ?? agents[0]
+
+    const proj = await dbq('SELECT name FROM task_projects WHERE id = ?', [data.projectId])
+    const { reqOrigin } = await import('../origin.server')
+    const origin = await reqOrigin()
+
+    await remember(data.projectId, agent.handle, user.sub, data.message, 'user')
+
+    // Fire-and-forget: la respuesta va por SSE (/api/stream).
     runAgentTurn({
       userSub: user.sub,
+      userName: user.name,
       projectId: data.projectId,
+      projectName: proj[0]?.name ?? 'este tablero',
+      handle: agent.handle,
       message: data.message,
       turnId: data.turnId,
-      ctx,
+      origin,
     }).catch(() => {})
 
-    return { ok: true }
+    return { ok: true as const, handle: agent.handle }
   })

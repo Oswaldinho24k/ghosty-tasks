@@ -1,14 +1,32 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { X, Send, Sparkles, CheckSquare2 } from 'lucide-react'
-import { askAgentFn } from '../server/agent'
+import { X, Send, Sparkles, CheckSquare2, ChevronDown, Wrench } from 'lucide-react'
+import { askAgentFn, listAgentsFn, getProjectAgentFn, setProjectAgentFn, getAgentHistoryFn } from '../server/agent'
+import { MemberAvatar } from './MemberAvatar'
 import { registerModalEsc } from '../utils/modal-esc'
 import type { WwEvent } from '../server/bus.server'
 import type { Column } from '../server/projects'
 
 type AgentEvent =
   | Extract<WwEvent, { t: 'agent:chunk' }>
+  | Extract<WwEvent, { t: 'agent:tool' }>
   | Extract<WwEvent, { t: 'agent:done' }>
+
+type Agent = { handle: string; name: string; avatar: string }
+
+// Nombre legible de cada herramienta: el usuario debe poder mirar el drawer y saber qué
+// está tocando el agente en SU tablero.
+const TOOL_LABELS: Record<string, string> = {
+  list_board: 'Miró el tablero',
+  find_tasks: 'Buscó tareas',
+  create_task: 'Creó una tarea',
+  move_task: 'Movió una tarea',
+  update_task: 'Actualizó una tarea',
+  set_labels: 'Cambió etiquetas',
+  comment_task: 'Comentó',
+  add_checklist_item: 'Añadió al checklist',
+  delete_task: 'Borró una tarea',
+}
 
 type Msg = {
   id: string
@@ -16,6 +34,7 @@ type Msg = {
   content: string
   streaming: boolean
   created_tasks: Array<{ id: number; title: string; column_id: number }>
+  tools?: string[]
 }
 
 function stripJsonBlock(text: string): string {
@@ -36,12 +55,16 @@ export function AgentDrawer({
   onRegisterEventCallback: (cb: ((ev: AgentEvent) => void) | null) => void
 }) {
   const [messages, setMessages] = useState<Msg[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [handle, setHandle] = useState<string | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const colMap = new Map(columns.map(c => [c.id, c.name]))
+  const current = agents.find((a) => a.handle === handle) ?? agents[0] ?? null
 
   // Register event handler with parent SSE
   const handleAgentRef = useRef<(ev: AgentEvent) => void>(() => {})
@@ -49,6 +72,10 @@ export function AgentDrawer({
     if (ev.t === 'agent:chunk') {
       setMessages(prev =>
         prev.map(m => m.id === ev.turnId ? { ...m, content: m.content + ev.value } : m)
+      )
+    } else if (ev.t === 'agent:tool') {
+      setMessages(prev =>
+        prev.map(m => m.id === ev.turnId ? { ...m, tools: [...(m.tools ?? []), ev.name] } : m)
       )
     } else if (ev.t === 'agent:done') {
       setMessages(prev =>
@@ -79,6 +106,46 @@ export function AgentDrawer({
     setTimeout(() => inputRef.current?.focus(), 100)
   }, [])
 
+  // Los agentes del EQUIPO (los que activaste en Ghosty Teams) y cuál quedó elegido
+  // para este tablero. La elección vive en la DB, así que es la misma en el teléfono.
+  useEffect(() => {
+    let alive = true
+    Promise.all([listAgentsFn(), getProjectAgentFn({ data: { projectId } })])
+      .then(([list, chosen]) => {
+        if (!alive) return
+        setAgents(list)
+        setHandle(chosen.handle ?? list[0]?.handle ?? null)
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [projectId])
+
+  // Historial: antes la conversación se perdía al recargar.
+  useEffect(() => {
+    if (!handle) return
+    let alive = true
+    getAgentHistoryFn({ data: { projectId, handle } })
+      .then((rows) => {
+        if (!alive || !rows.length) return
+        setMessages(rows.map((r, i) => ({
+          id: `h-${i}`,
+          role: r.role,
+          content: r.body,
+          streaming: false,
+          created_tasks: [],
+        })))
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [projectId, handle])
+
+  async function pickAgent(h: string) {
+    setHandle(h)
+    setPickerOpen(false)
+    setMessages([])
+    await setProjectAgentFn({ data: { projectId, handle: h } }).catch(() => {})
+  }
+
   async function send() {
     const text = input.trim()
     if (!text || busy) return
@@ -96,7 +163,7 @@ export function AgentDrawer({
     setBusy(true)
 
     try {
-      await askAgentFn({ data: { projectId, message: text, turnId } })
+      await askAgentFn({ data: { projectId, message: text, turnId, handle: handle ?? undefined } })
     } catch {
       setMessages(prev =>
         prev.map(m =>
@@ -126,14 +193,45 @@ export function AgentDrawer({
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10">
-            <Sparkles size={14} className="text-brand" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-ink">Ghosty</p>
-            <p className="text-[10px] text-muted">Asistente AI del proyecto</p>
-          </div>
+        {/* Con quién hablas. Son los agentes del equipo, no uno propio de Tasks: si hay
+            varios, se elige aquí y la elección se recuerda por tablero. */}
+        <div className="relative min-w-0">
+          <button
+            onClick={() => agents.length > 1 && setPickerOpen((v) => !v)}
+            className={`flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 ${agents.length > 1 ? 'transition-colors hover:bg-surface-3' : 'cursor-default'}`}
+          >
+            {current?.avatar ? (
+              <MemberAvatar name={current.name} avatar={current.avatar} size={28} />
+            ) : (
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10">
+                <Sparkles size={14} className="text-brand" />
+              </div>
+            )}
+            <div className="min-w-0 text-left">
+              <p className="truncate text-sm font-semibold text-ink">{current?.name ?? 'Ghosty'}</p>
+              <p className="text-[10px] text-muted">
+                {current ? `@${current.handle} · del equipo` : 'Asistente del tablero'}
+              </p>
+            </div>
+            {agents.length > 1 && <ChevronDown size={13} className="shrink-0 text-muted" />}
+          </button>
+          {pickerOpen && (
+            <div className="absolute left-0 z-20 mt-1 w-56 rounded-lg border border-border bg-surface-2 py-1 shadow-xl">
+              {agents.map((a) => (
+                <button
+                  key={a.handle}
+                  onClick={() => pickAgent(a.handle)}
+                  className="flex w-full items-center gap-2 px-2 py-1.5 text-xs text-ink transition-colors hover:bg-surface-3"
+                >
+                  <MemberAvatar name={a.name} avatar={a.avatar} size={22} />
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate">{a.name}</span>
+                    <span className="block truncate text-[10px] text-muted">@{a.handle}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <button
           onClick={onClose}
@@ -185,6 +283,17 @@ export function AgentDrawer({
               </div>
             )}
             <div className={`max-w-[85%] ${msg.role === 'user' ? 'order-first' : ''}`}>
+              {/* Lo que fue tocando en el tablero, mientras lo hacía. */}
+              {msg.role === 'agent' && msg.tools?.length ? (
+                <div className="mb-1.5 flex flex-col gap-0.5">
+                  {msg.tools.map((name, i) => (
+                    <p key={`${name}-${i}`} className="flex items-center gap-1.5 text-[11px] text-muted">
+                      <Wrench size={10} className="shrink-0" />
+                      {TOOL_LABELS[name] ?? name.replace(/_/g, ' ')}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
               <div
                 className={`rounded-2xl px-3 py-2 text-sm leading-relaxed ${
                   msg.role === 'user'

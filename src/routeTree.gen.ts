@@ -20,6 +20,7 @@ import { Route as PSlugListRouteImport } from './routes/p.$slug.list'
 import { Route as PSlugGoalsRouteImport } from './routes/p.$slug.goals'
 import { Route as PSlugBoardRouteImport } from './routes/p.$slug.board'
 import { Route as ApiAvatarIdRouteImport } from './routes/api.avatar.$id'
+import { Route as ApiAgentToolsRouteImport } from './routes/api.agent.tools'
 
 const SetupRoute = SetupRouteImport.update({
   id: '/setup',
@@ -76,6 +77,11 @@ const ApiAvatarIdRoute = ApiAvatarIdRouteImport.update({
   path: '/api/avatar/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentToolsRoute = ApiAgentToolsRouteImport.update({
+  id: '/api/agent/tools',
+  path: '/api/agent/tools',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -85,6 +91,7 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
   '/p/$slug': typeof PSlugRouteWithChildren
+  '/api/agent/tools': typeof ApiAgentToolsRoute
   '/api/avatar/$id': typeof ApiAvatarIdRoute
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
@@ -98,6 +105,7 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
   '/p/$slug': typeof PSlugRouteWithChildren
+  '/api/agent/tools': typeof ApiAgentToolsRoute
   '/api/avatar/$id': typeof ApiAvatarIdRoute
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
@@ -112,6 +120,7 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
   '/p/$slug': typeof PSlugRouteWithChildren
+  '/api/agent/tools': typeof ApiAgentToolsRoute
   '/api/avatar/$id': typeof ApiAvatarIdRoute
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
@@ -127,6 +136,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/api/stream'
     | '/p/$slug'
+    | '/api/agent/tools'
     | '/api/avatar/$id'
     | '/p/$slug/board'
     | '/p/$slug/goals'
@@ -140,6 +150,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/api/stream'
     | '/p/$slug'
+    | '/api/agent/tools'
     | '/api/avatar/$id'
     | '/p/$slug/board'
     | '/p/$slug/goals'
@@ -153,6 +164,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/api/stream'
     | '/p/$slug'
+    | '/api/agent/tools'
     | '/api/avatar/$id'
     | '/p/$slug/board'
     | '/p/$slug/goals'
@@ -167,6 +179,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   ApiStreamRoute: typeof ApiStreamRoute
   PSlugRoute: typeof PSlugRouteWithChildren
+  ApiAgentToolsRoute: typeof ApiAgentToolsRoute
   ApiAvatarIdRoute: typeof ApiAvatarIdRoute
 }
 
@@ -249,6 +262,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAvatarIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/tools': {
+      id: '/api/agent/tools'
+      path: '/api/agent/tools'
+      fullPath: '/api/agent/tools'
+      preLoaderRoute: typeof ApiAgentToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -274,8 +294,18 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   ApiStreamRoute: ApiStreamRoute,
   PSlugRoute: PSlugRouteWithChildren,
+  ApiAgentToolsRoute: ApiAgentToolsRoute,
   ApiAvatarIdRoute: ApiAvatarIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

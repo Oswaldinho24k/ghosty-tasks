@@ -141,7 +141,7 @@ function ProjectShell() {
           const map = new Map(prev.map((c) => [c.id, c]))
           return ev.ordered_ids.map((id, i) => ({ ...map.get(id)!, position: i })).filter(Boolean)
         })
-      } else if (ev.t === 'agent:chunk' || ev.t === 'agent:done') {
+      } else if (ev.t === 'agent:chunk' || ev.t === 'agent:tool' || ev.t === 'agent:done') {
         agentEventCallback.current?.(ev)
       }
     },
