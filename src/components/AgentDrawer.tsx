@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { X, Send, Sparkles, CheckSquare2, ChevronDown, Wrench } from 'lucide-react'
+import { X, Send, Sparkles, CheckSquare2, ChevronDown, Wrench, Check } from 'lucide-react'
 import { askAgentFn, listAgentsFn, getProjectAgentFn, setProjectAgentFn, getAgentHistoryFn } from '../server/agent'
 import { MemberAvatar } from './MemberAvatar'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeSanitize from 'rehype-sanitize'
 import { registerModalEsc } from '../utils/modal-esc'
 import type { WwEvent } from '../server/bus.server'
 import type { Column } from '../server/projects'
@@ -16,6 +19,13 @@ type Agent = { handle: string; name: string; avatar: string }
 
 // Nombre legible de cada herramienta: el usuario debe poder mirar el drawer y saber qué
 // está tocando el agente en SU tablero.
+// El runtime las anuncia como `gs_connector:list_board` (van por el canal de los
+// conectores), así que hay que quitarle el prefijo antes de buscar la etiqueta.
+function toolLabel(raw: string): string {
+  const name = raw.replace(/^gs[_ ]connector:/, '').replace(/ /g, '_')
+  return TOOL_LABELS[name] ?? name.replace(/_/g, ' ')
+}
+
 const TOOL_LABELS: Record<string, string> = {
   list_board: 'Miró el tablero',
   find_tasks: 'Buscó tareas',
@@ -41,6 +51,63 @@ function stripJsonBlock(text: string): string {
   return text
     .replace(/```(?:json)?\s*\{[\s\S]*?"create_tasks"[\s\S]*?\}\s*```/g, '')
     .trim()
+}
+
+// Mismo bloque que en Ghosty Teams: una sola herramienta va en una línea (el header y
+// la fila dirían lo mismo), varias se agrupan en una tarjeta colapsable con contador.
+// Abierto por defecto: lo que se quiere es ver qué está tocando en el tablero.
+function ToolGroup({ names, running }: { names: string[]; running: boolean }) {
+  const [open, setOpen] = useState(true)
+  if (!names.length) return null
+
+  const line = (name: string, last: boolean) => (
+    <>
+      {running && last ? (
+        <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-muted/40 border-t-brand" />
+      ) : (
+        <Check size={13} className="shrink-0 text-emerald-500" />
+      )}
+      <span className="truncate">{toolLabel(name)}</span>
+    </>
+  )
+
+  if (names.length === 1) {
+    return (
+      <div className="mb-1.5 flex max-w-md items-center gap-2 rounded-lg border border-border bg-surface-2/50 px-2.5 py-1.5 text-xs text-ink">
+        <Wrench size={12} className="shrink-0 text-muted" />
+        {line(names[0], true)}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-1.5 max-w-md overflow-hidden rounded-lg border border-border bg-surface-2/50">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-surface-3/40"
+      >
+        <Wrench size={12} className="shrink-0 text-muted" />
+        <span className="truncate font-medium text-ink">
+          {names.length} herramientas
+        </span>
+        {running ? (
+          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-muted/40 border-t-brand" />
+        ) : (
+          <Check size={12} className="shrink-0 text-emerald-500" />
+        )}
+        <ChevronDown size={14} className={`ml-auto shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="border-t border-border/60 px-2.5 py-1.5">
+          {names.map((n, i) => (
+            <div key={`${n}-${i}`} className="flex items-center gap-2 py-0.5 text-xs text-muted">
+              {line(n, i === names.length - 1)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function AgentDrawer({
@@ -285,14 +352,7 @@ export function AgentDrawer({
             <div className={`max-w-[85%] ${msg.role === 'user' ? 'order-first' : ''}`}>
               {/* Lo que fue tocando en el tablero, mientras lo hacía. */}
               {msg.role === 'agent' && msg.tools?.length ? (
-                <div className="mb-1.5 flex flex-col gap-0.5">
-                  {msg.tools.map((name, i) => (
-                    <p key={`${name}-${i}`} className="flex items-center gap-1.5 text-[11px] text-muted">
-                      <Wrench size={10} className="shrink-0" />
-                      {TOOL_LABELS[name] ?? name.replace(/_/g, ' ')}
-                    </p>
-                  ))}
-                </div>
+                <ToolGroup names={msg.tools} running={msg.streaming} />
               ) : null}
               <div
                 className={`rounded-2xl px-3 py-2 text-sm leading-relaxed ${
@@ -301,9 +361,17 @@ export function AgentDrawer({
                     : 'bg-surface-2 text-ink rounded-bl-sm'
                 }`}
               >
-                {msg.role === 'agent'
-                  ? (stripJsonBlock(msg.content) || (msg.streaming ? '' : '…'))
-                  : msg.content}
+                {msg.role === 'agent' ? (
+                  // El agente responde en markdown (negritas, listas, código): en crudo
+                  // se leían los asteriscos.
+                  <div className="gt-md">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+                      {stripJsonBlock(msg.content) || (msg.streaming ? '' : '…')}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  msg.content
+                )}
                 {msg.streaming && (
                   <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse rounded-full bg-current opacity-70" />
                 )}
