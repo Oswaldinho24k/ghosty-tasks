@@ -600,15 +600,22 @@ export function TaskDetailPanel({
                     <div>
                       <p className="text-[10px] text-muted font-medium mb-1.5">Labels del proyecto</p>
                       <div className="flex flex-wrap gap-1.5">
+                        {/* TODAS las del tablero, no solo las que faltan: esconder las ya
+                            puestas se leía como "faltan etiquetas". Las que ya tiene salen
+                            atenuadas y con palomita, y al tocarlas se quitan. */}
                         {projectLabels
-                          .filter((l) => !labels.find((lx) => lx.label === l.label))
+                          .map((l) => ({ ...l, on: !!labels.find((lx) => lx.label === l.label) }))
                           .map((l) => (
                             <button
                               key={l.label}
-                              onClick={() => addLabel(l.label, l.color)}
-                              className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium text-white hover:opacity-80"
+                              onClick={() => (l.on ? removeLabel(l.label) : addLabel(l.label, l.color))}
+                              title={l.on ? 'Quitar de esta tarea' : 'Poner en esta tarea'}
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white transition ${
+                                l.on ? 'opacity-45 hover:opacity-70' : 'hover:opacity-80'
+                              }`}
                               style={{ background: l.color }}
                             >
+                              {l.on && <Check size={10} />}
                               {l.label}
                             </button>
                           ))}

@@ -92,7 +92,12 @@ export function ProjectSettingsPanel({
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: '100%', opacity: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-border bg-surface shadow-xl"
+      // data-keep-detail: cerrar Ajustes no debe cerrarte además la tarea que tenías
+      // abierta detrás — son dos paneles distintos y el clic era uno solo.
+      data-keep-detail
+      // z-50 (encima del chat) y debajo de la barra: son ajustes que se abren a propósito
+      // y sobre todo lo demás, pero taparte la barra te deja sin salida.
+      className="fixed bottom-0 right-0 top-14 z-50 flex w-full max-w-md flex-col border-l border-t border-border bg-surface shadow-xl"
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
