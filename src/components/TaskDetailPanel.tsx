@@ -15,6 +15,7 @@ import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
 import { AssigneePicker } from './AssigneePicker'
 import { registerModalEsc } from '../utils/modal-esc'
 import { taskRef } from '../utils/taskRef'
+import { RichText } from './RichText'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 type Detail = Awaited<ReturnType<typeof getTaskDetailFn>>
@@ -371,11 +372,14 @@ export function TaskDetailPanel({
       // se ven los dos y el chat manda (es donde estás escribiendo).
       // Arranca DEBAJO de la barra superior: si la tapa, abrir una tarea te deja sin
       // "Nueva tarea" ni botón del agente hasta cerrarla.
-      // El desplazamiento al abrir el chat va animado con el mismo muelle que la entrada
-      // del panel: si no, la tarea salta de golpe y parece un fallo de layout.
-      animate={{ x: 0, opacity: 1, right: agentOpen && typeof window !== 'undefined' && window.innerWidth >= 640 ? '24rem' : 0 }}
+      animate={{ x: 0, opacity: 1 }}
       transition={{ type: 'spring', stiffness: 320, damping: 34 }}
-      className="fixed bottom-0 top-14 z-30 flex w-full max-w-lg flex-col border-l border-t border-border bg-surface shadow-xl"
+      // El deslizamiento de entrada (x) lo hace motion; el CORRIMIENTO lateral al abrir el
+      // chat lo hace CSS sobre `right`. Animar las dos cosas con motion hacía que el panel
+      // entrara hasta la derecha y luego saltara: eran dos animaciones peleándose.
+      className={`fixed bottom-0 top-14 z-30 flex w-full max-w-lg flex-col border-l border-t border-border bg-surface shadow-xl transition-[right] duration-300 ease-out ${
+        agentOpen ? 'right-0 sm:right-96' : 'right-0'
+      }`}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
@@ -490,15 +494,16 @@ export function TaskDetailPanel({
                 Descripción
               </button>
               {descExpanded && (
-                <textarea
-                  defaultValue={detail.task.description ?? ''}
-                  onBlur={async (e) => {
-                    await updateTaskFn({ data: { id: taskId, project_id: projectId, description: e.target.value } })
-                    setDetail((d) => d ? { ...d, task: { ...d.task, description: e.target.value } } : d)
-                  }}
-                  rows={4}
+                // Texto enriquecido con el mismo editor que el chat de Teams. Se guarda
+                // MARKDOWN, no HTML: sigue siendo legible en la DB y para el agente, que
+                // lee y escribe este mismo campo.
+                <RichText
+                  value={detail.task.description ?? ''}
                   placeholder="Agrega contexto, links, notas…"
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-brand resize-none"
+                  onSave={async (markdown) => {
+                    await updateTaskFn({ data: { id: taskId, project_id: projectId, description: markdown } })
+                    setDetail((d) => (d ? { ...d, task: { ...d.task, description: markdown } } : d))
+                  }}
                 />
               )}
             </div>

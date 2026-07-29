@@ -348,7 +348,9 @@ export function AgentDrawer({
         setDragging(false)
         if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files)
       }}
-      className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l bg-surface shadow-xl transition-colors ${
+      // Debajo de la barra superior, igual que el detalle: taparla deja sin salida (no se
+      // puede crear una tarea ni cambiar de vista sin cerrar el chat).
+      className={`fixed bottom-0 right-0 top-14 z-40 flex w-full max-w-sm flex-col border-l border-t bg-surface shadow-xl transition-colors ${
         dragging ? 'border-brand ring-2 ring-brand/40' : 'border-border'
       }`}
     >

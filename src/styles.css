@@ -104,3 +104,33 @@ html, body {
 .gt-md h1, .gt-md h2, .gt-md h3 { font-weight: 600; margin: 0.4rem 0 0.3rem; font-size: 1em; }
 .gt-md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 0 0 0.5rem; }
 .gt-md th, .gt-md td { border: 1px solid var(--color-border); padding: 0.2rem 0.4rem; }
+
+/* Editor de texto enriquecido (TipTap). Calcado de Ghosty Teams para que un mismo
+   contenido se vea igual en los dos productos. */
+.ProseMirror { outline: none; }
+.ProseMirror p { margin: 0; }
+.ProseMirror > * + * { margin-top: 0.35rem; }
+.ProseMirror ul, .ProseMirror ol { padding-left: 1.25rem; }
+.ProseMirror ul { list-style: disc; }
+.ProseMirror ol { list-style: decimal; }
+.ProseMirror blockquote {
+  border-left: 2px solid var(--color-border);
+  padding-left: 0.6rem;
+  color: var(--color-muted);
+}
+.ProseMirror code {
+  background: var(--color-surface-3);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+}
+.ProseMirror a { color: var(--color-brand); text-decoration: underline; text-underline-offset: 2px; }
+/* El placeholder es un ::before sobre el primer párrafo vacío; ojo con overflow:hidden
+   en el contenedor, que lo esconde. */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-muted);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
