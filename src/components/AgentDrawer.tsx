@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { X, Send, Sparkles, CheckSquare2, ChevronDown, Wrench, Check } from 'lucide-react'
+import { X, Send, Sparkles, CheckSquare2, ChevronDown, Wrench, Check, ImagePlus } from 'lucide-react'
 import { askAgentFn, listAgentsFn, getProjectAgentFn, setProjectAgentFn, getAgentHistoryFn } from '../server/agent'
 import { MemberAvatar } from './MemberAvatar'
 import ReactMarkdown from 'react-markdown'
@@ -125,6 +125,10 @@ export function AgentDrawer({
   const [agents, setAgents] = useState<Agent[]>([])
   const [handle, setHandle] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Adjuntos del PRÓXIMO mensaje. Van inline en base64: son capturas y mockups, no
+  // archivos pesados — por eso hay tope y no almacenamiento.
+  const [files, setFiles] = useState<Array<{ name: string; mimeType: string; bytes: string; preview: string }>>([])
+  const [dragging, setDragging] = useState(false)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -213,9 +217,31 @@ export function AgentDrawer({
     await setProjectAgentFn({ data: { projectId, handle: h } }).catch(() => {})
   }
 
+  const MAX_BYTES = 1_500_000
+
+  async function addFiles(list: FileList | File[]) {
+    const incoming = Array.from(list).filter((f) => f.type.startsWith('image/'))
+    for (const f of incoming) {
+      if (f.size > MAX_BYTES) {
+        // Mejor decirlo que mandar 8MB en base64 por un server-fn.
+        setMessages((prev) => [
+          ...prev,
+          { id: `e-${Date.now()}`, role: 'agent', content: `"${f.name}" pesa demasiado (máx. 1.5 MB).`, streaming: false, created_tasks: [] },
+        ])
+        continue
+      }
+      const buf = await f.arrayBuffer()
+      let bin = ''
+      const bytesArr = new Uint8Array(buf)
+      for (let i = 0; i < bytesArr.length; i++) bin += String.fromCharCode(bytesArr[i])
+      const b64 = btoa(bin)
+      setFiles((prev) => [...prev, { name: f.name, mimeType: f.type, bytes: b64, preview: `data:${f.type};base64,${b64}` }])
+    }
+  }
+
   async function send() {
     const text = input.trim()
-    if (!text || busy) return
+    if ((!text && !files.length) || busy) return
 
     const turnId = typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
@@ -227,10 +253,12 @@ export function AgentDrawer({
       { id: turnId, role: 'agent', content: '', streaming: true, created_tasks: [] },
     ])
     setInput('')
+    const attachments = files.map((f) => ({ name: f.name, mimeType: f.mimeType, bytes: f.bytes }))
+    setFiles([])
     setBusy(true)
 
     try {
-      await askAgentFn({ data: { projectId, message: text, turnId, handle: handle ?? undefined } })
+      await askAgentFn({ data: { projectId, message: text, turnId, handle: handle ?? undefined, attachments } })
     } catch {
       setMessages(prev =>
         prev.map(m =>
@@ -256,7 +284,16 @@ export function AgentDrawer({
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: '100%', opacity: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-xl"
+      onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false) }}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragging(false)
+        if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files)
+      }}
+      className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l bg-surface shadow-xl transition-colors ${
+        dragging ? 'border-brand ring-2 ring-brand/40' : 'border-border'
+      }`}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -405,12 +442,42 @@ export function AgentDrawer({
 
       {/* Input */}
       <div className="border-t border-border p-3">
+        {files.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {files.map((f, i) => (
+              <div key={`${f.name}-${i}`} className="group relative">
+                <img src={f.preview} alt={f.name} className="h-14 w-14 rounded-lg border border-border object-cover" />
+                <button
+                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                  className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-border bg-surface text-muted transition hover:text-ink"
+                  aria-label={`Quitar ${f.name}`}
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2 focus-within:border-brand focus-within:ring-1 focus-within:ring-brand transition-colors">
+          <label className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted transition hover:bg-surface-3 hover:text-ink" title="Adjuntar imagen">
+            <ImagePlus size={15} />
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }}
+            />
+          </label>
           <textarea
             ref={inputRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={(e) => {
+              const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'))
+              if (imgs.length) { e.preventDefault(); addFiles(imgs) }
+            }}
             placeholder="Escribe un mensaje…"
             rows={1}
             disabled={busy}
@@ -419,14 +486,14 @@ export function AgentDrawer({
           />
           <button
             onClick={send}
-            disabled={!input.trim() || busy}
+            disabled={(!input.trim() && !files.length) || busy}
             className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-brand text-brand-fg transition hover:brightness-110 disabled:opacity-40"
           >
             <Send size={13} />
           </button>
         </div>
         <p className="mt-1.5 text-center text-[10px] text-muted">
-          Enter para enviar · Shift+Enter para nueva línea
+          Enter para enviar · arrastra o pega una imagen
         </p>
       </div>
     </motion.div>

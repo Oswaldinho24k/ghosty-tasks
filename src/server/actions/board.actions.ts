@@ -20,6 +20,33 @@ async function taskOf(projectId: number, id: number): Promise<Row> {
   return rows[0];
 }
 
+/**
+ * Resuelve a una persona por nombre, @handle, correo — o "yo"/"mí", que es como habla
+ * quien te está pidiendo el trabajo. Sin esto el agente tenía que mapear nombres a
+ * `sub` de memoria, y terminaba preguntando "¿cuál de los miembros eres tú?".
+ */
+async function memberBy(ctx: { sub: string }, q: string): Promise<{ sub: string; name: string } | { candidates: Array<{ sub: string; name: string; handle: string }> }> {
+  const { listWorkspaceMembers } = await import("../../users.server");
+  const members = await listWorkspaceMembers().catch(() => []);
+  const needle = q.trim().replace(/^@/, "").toLowerCase();
+  if (["yo", "mi", "mí", "me", "myself"].includes(needle)) {
+    const me = members.find((m) => m.sub === ctx.sub);
+    return { sub: ctx.sub, name: me?.name ?? "tú" };
+  }
+  const hits = members.filter(
+    (m) =>
+      m.sub === q ||
+      m.handle?.toLowerCase() === needle ||
+      m.email?.toLowerCase() === needle ||
+      m.name.toLowerCase().includes(needle)
+  );
+  if (!hits.length) throw new ActionInputError(`no encuentro a "${q}" en el equipo`);
+  if (hits.length > 1) {
+    return { candidates: hits.map((m) => ({ sub: m.sub, name: m.name, handle: m.handle })) };
+  }
+  return { sub: hits[0].sub, name: hits[0].name };
+}
+
 async function columnByName(projectId: number, name: string) {
   const cols = await dbq("SELECT id, name FROM task_columns WHERE project_id = ? ORDER BY position", [projectId]);
   const norm = (s: string) => s.trim().toLowerCase();
@@ -102,25 +129,16 @@ const findTasks = defineAction({
       args.push(col.id);
     }
     if (input.assignee) {
-      const { listWorkspaceMembers } = await import("../../users.server");
-      const members = await listWorkspaceMembers().catch(() => []);
-      const q = input.assignee.replace(/^@/, "").toLowerCase();
-      const hits = members.filter(
-        (m) =>
-          m.handle?.toLowerCase() === q ||
-          m.email?.toLowerCase() === q ||
-          m.name.toLowerCase().includes(q)
-      );
-      if (!hits.length) throw new ActionInputError(`no encuentro a "${input.assignee}" en el equipo`);
-      if (hits.length > 1) {
+      const who = await memberBy(ctx, input.assignee);
+      if ("candidates" in who) {
         return {
           needs: "disambiguation" as const,
           reason: `hay varias personas que coinciden con "${input.assignee}"`,
-          candidates: hits.map((m) => ({ sub: m.sub, name: m.name, handle: m.handle })),
+          candidates: who.candidates,
         };
       }
       where.push("assignee_sub = ?");
-      args.push(hits[0].sub);
+      args.push(who.sub);
     }
 
     const rows = await dbq(
@@ -150,9 +168,12 @@ const createTask = defineAction({
     column: { type: "string", description: "Nombre de la columna (por defecto, la primera)" },
     description: { type: "string", description: "Descripción" },
     priority: { type: "string", description: "Prioridad", enum: PRIORITIES },
-    assignee_sub: { type: "string", description: "sub de la persona asignada (de list_board)" },
+    assignee: {
+      type: "string",
+      description: 'A quién se asigna: nombre, @handle, correo — o "yo" para quien te está hablando',
+    },
   },
-  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee_sub?: string }) {
+  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee?: string }) {
     let columnId: number;
     if (input.column) {
       columnId = (await columnByName(ctx.projectId, input.column)).id;
@@ -161,13 +182,21 @@ const createTask = defineAction({
       if (!first[0]) throw new ActionInputError("el tablero no tiene columnas");
       columnId = num(first[0].id);
     }
+    let assigneeSub: string | undefined;
+    if (input.assignee) {
+      const who = await memberBy(ctx, input.assignee);
+      if ("candidates" in who) {
+        return { needs: "disambiguation" as const, reason: `¿a cuál te refieres?`, candidates: who.candidates };
+      }
+      assigneeSub = who.sub;
+    }
     const task = await ops.createTask(ctx.sub, {
       project_id: ctx.projectId,
       column_id: columnId,
       title: input.title,
       description: input.description,
       priority: input.priority,
-      assignee_sub: input.assignee_sub,
+      assignee_sub: assigneeSub,
     });
     return { id: task.id, title: task.title, column_id: task.column_id };
   },
@@ -197,10 +226,22 @@ const updateTask = defineAction({
     description: { type: "string", description: "Nueva descripción" },
     priority: { type: "string", description: "Prioridad", enum: PRIORITIES },
     status: { type: "string", description: "Estado", enum: ["open", "done"] },
-    assignee_sub: { type: "string", description: "sub de la persona; usa \"none\" para dejarla sin asignar" },
+    assignee: {
+      type: "string",
+      description: 'A quién se asigna: nombre, @handle, correo, "yo" — o "none" para dejarla sin asignar',
+    },
   },
-  async run(ctx, input: { id: number; title?: string; description?: string; priority?: string; status?: string; assignee_sub?: string }) {
+  async run(ctx, input: { id: number; title?: string; description?: string; priority?: string; status?: string; assignee?: string }) {
     await taskOf(ctx.projectId, input.id);
+    let assignee: string | null | undefined;
+    if (input.assignee === "none") assignee = null;
+    else if (input.assignee) {
+      const who = await memberBy(ctx, input.assignee);
+      if ("candidates" in who) {
+        return { needs: "disambiguation" as const, reason: `¿a cuál te refieres?`, candidates: who.candidates };
+      }
+      assignee = who.sub;
+    }
     await ops.updateTask(ctx.sub, {
       id: input.id,
       project_id: ctx.projectId,
@@ -208,7 +249,7 @@ const updateTask = defineAction({
       description: input.description,
       priority: input.priority,
       status: input.status,
-      assignee_sub: input.assignee_sub === "none" ? null : input.assignee_sub,
+      assignee_sub: assignee,
     });
     return { ok: true, id: input.id };
   },

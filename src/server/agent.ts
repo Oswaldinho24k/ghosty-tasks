@@ -78,9 +78,12 @@ export const getAgentHistoryFn = createServerFn({ method: 'GET' })
     }))
   })
 
-function systemPrompt(projectName: string): string {
+function systemPrompt(projectName: string, who: { name: string; handle: string }): string {
   return [
     `Estás dentro de Ghosty Tasks, en el tablero "${projectName}".`,
+    // Quién habla: sin esto preguntaba "¿cuál de los miembros eres tú?" cuando alguien
+    // decía "asígnamela a mí".
+    `Quien te está hablando es ${who.name}${who.handle ? ` (@${who.handle})` : ""}. Cuando diga "a mí", "mío" o "yo", se refiere a esa persona: pasa "yo" como valor de assignee y las herramientas lo resuelven.`,
     // Cómo llegar a ellas: el worker es code-mode y las tools de este turno se sirven
     // por el módulo `connectors` del SDK. Sin esta línea el agente no las busca y
     // responde que no puede tocar el tablero.
@@ -93,9 +96,16 @@ function systemPrompt(projectName: string): string {
   ].join(' ')
 }
 
+// Una imagen arrastrada al drawer viaja INLINE en base64. Tasks no tiene almacenamiento
+// propio y no hace falta: el runtime acepta `bytes` para adjuntos chicos, que es
+// justamente el caso (una captura, un mockup). Los grandes se rechazan en el cliente.
+export type MediaPart = { kind: 'file'; file: { name?: string; mimeType: string; bytes: string } }
+
 async function runAgentTurn(opts: {
   userSub: string
   userName: string
+  who: { name: string; handle: string }
+  parts: MediaPart[]
   projectId: number
   projectName: string
   handle: string
@@ -123,7 +133,8 @@ async function runAgentTurn(opts: {
     configGroupId: 'tasks',
     sender: opts.userName,
     text: opts.message,
-    appendSystemPrompt: systemPrompt(opts.projectName),
+    parts: opts.parts,
+    appendSystemPrompt: systemPrompt(opts.projectName, opts.who),
     toolToken: mintToolToken(opts.userSub, opts.projectId),
     toolsUrl: `${opts.origin}/api/agent/tools`,
   })
@@ -178,7 +189,15 @@ async function runAgentTurn(opts: {
 }
 
 export const askAgentFn = createServerFn({ method: 'POST' })
-  .validator((d: { projectId: number; message: string; turnId: string; handle?: string }) => d)
+  .validator(
+    (d: {
+      projectId: number
+      message: string
+      turnId: string
+      handle?: string
+      attachments?: Array<{ name?: string; mimeType: string; bytes: string }>
+    }) => d
+  )
   .handler(async ({ data }) => {
     await ensureSchema()
     const s = await session()
@@ -205,10 +224,15 @@ export const askAgentFn = createServerFn({ method: 'POST' })
 
     await remember(data.projectId, agent.handle, user.sub, data.message, 'user')
 
+    const { listWorkspaceMembers } = await import('../users.server')
+    const me = (await listWorkspaceMembers().catch(() => [])).find((m) => m.sub === user.sub)
+
     // Fire-and-forget: la respuesta va por SSE (/api/stream).
     runAgentTurn({
       userSub: user.sub,
       userName: user.name,
+      who: { name: me?.name ?? user.name, handle: me?.handle ?? '' },
+      parts: (data.attachments ?? []).map((a) => ({ kind: 'file' as const, file: a })),
       projectId: data.projectId,
       projectName: proj[0]?.name ?? 'este tablero',
       handle: agent.handle,

@@ -30,19 +30,25 @@ export const Route = createFileRoute("/api/agent/tools")({
         const { ACTIONS, ACTIONS_BY_NAME } = await import("../server/actions/board.actions");
         const { toJsonSchema, parseInput, ActionInputError } = await import("../server/actions/define");
 
+        const { connectorTools, runConnectorTool } = await import("../server/connectors-bridge.server");
+
         if (body.action === "list") {
-          return json({
-            tools: ACTIONS.map((a) => ({
-              name: a.name,
-              description: a.description,
-              inputSchema: toJsonSchema(a.schema),
-            })),
-          });
+          // Las del tablero MÁS los conectores del usuario (Deník, Calendly…): el canal
+          // de tools es uno solo por turno, y sin esto entrar por Tasks le quitaba al
+          // agente todo lo que sí tiene en Teams.
+          const mine = ACTIONS.map((a) => ({
+            name: a.name,
+            description: a.description,
+            inputSchema: toJsonSchema(a.schema),
+          }));
+          const theirs = await connectorTools(claims.sub);
+          return json({ tools: [...mine, ...theirs] });
         }
 
         if (body.action === "run") {
           const action = ACTIONS_BY_NAME.get(body.name ?? "");
-          if (!action) return json({ ok: false, error: `no existe la herramienta "${body.name}"` });
+          // Si no es del tablero, puede ser un conector del usuario → se reenvía a Teams.
+          if (!action) return json(await runConnectorTool(claims.sub, body.name ?? "", body.args));
           try {
             const input = parseInput(action.schema, body.args);
             const result = await action.run(
