@@ -22,6 +22,10 @@ type Agent = { handle: string; name: string; avatar: string }
 // pedir el historial al servidor y te dejaba arriba del todo mientras cargaba — con la
 // conversación creciendo, eso es un salto molesto cada vez.
 const historyCache = new Map<string, Msg[]>()
+// Qué agente quedó elegido en cada tablero. Va aparte del historial porque el historial
+// se busca POR agente: mientras el handle no se resolvía (un viaje al servidor), ni
+// siquiera se podía consultar la caché, y ése era el brinco al abrir el chat.
+const handleCache = new Map<number, string>()
 
 // Nombre legible de cada herramienta: el usuario debe poder mirar el drawer y saber qué
 // está tocando el agente en SU tablero.
@@ -153,7 +157,7 @@ export function AgentDrawer({
 }) {
   const [messages, setMessages] = useState<Msg[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
-  const [handle, setHandle] = useState<string | null>(null)
+  const [handle, setHandle] = useState<string | null>(() => handleCache.get(projectId) ?? null)
   const [pickerOpen, setPickerOpen] = useState(false)
   // Adjuntos del PRÓXIMO mensaje. Van inline en base64: son capturas y mockups, no
   // archivos pesados — por eso hay tope y no almacenamiento.
@@ -163,7 +167,9 @@ export function AgentDrawer({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   // Hasta saber si hay conversación previa no se pinta nada: mostrar la bienvenida y
   // reemplazarla un segundo después por el historial es un parpadeo feo.
-  const [historyReady, setHistoryReady] = useState(false)
+  const [historyReady, setHistoryReady] = useState(() =>
+    historyCache.has(`${projectId}:${handleCache.get(projectId) ?? ''}`)
+  )
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -282,7 +288,9 @@ export function AgentDrawer({
       .then(([list, chosen]) => {
         if (!alive) return
         setAgents(list)
-        setHandle(chosen.handle ?? list[0]?.handle ?? null)
+        const h = chosen.handle ?? list[0]?.handle ?? null
+        if (h) handleCache.set(projectId, h)
+        setHandle(h)
       })
       .catch(() => {})
     return () => { alive = false }
@@ -325,6 +333,7 @@ export function AgentDrawer({
   }, [messages, projectId, handle])
 
   async function pickAgent(h: string) {
+    handleCache.set(projectId, h)
     setHandle(h)
     setPickerOpen(false)
     setMessages([])
@@ -468,6 +477,21 @@ export function AgentDrawer({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {!historyReady && messages.length === 0 && (
+          // Esqueletos en vez de vacío: el hueco en blanco seguido del historial de golpe
+          // es justo el brinco. Alternan lado como una conversación real.
+          <div className="space-y-3" aria-hidden>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className={`flex ${i % 2 ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className="h-9 animate-pulse rounded-2xl bg-surface-2"
+                  style={{ width: `${i % 2 ? 42 : 62}%`, animationDelay: `${i * 90}ms` }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
         {historyReady && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-12">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10">
