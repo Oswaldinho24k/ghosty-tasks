@@ -18,6 +18,11 @@ type AgentEvent =
 
 type Agent = { handle: string; name: string; avatar: string }
 
+// Lo último que se habló con cada agente en cada tablero. Sin esto, abrir el chat volvía a
+// pedir el historial al servidor y te dejaba arriba del todo mientras cargaba — con la
+// conversación creciendo, eso es un salto molesto cada vez.
+const historyCache = new Map<string, Msg[]>()
+
 // Nombre legible de cada herramienta: el usuario debe poder mirar el drawer y saber qué
 // está tocando el agente en SU tablero.
 // El runtime las anuncia como `gs_connector:list_board` (van por el canal de los
@@ -210,8 +215,13 @@ export function AgentDrawer({
     return () => onRegisterEventCallback(null)
   }, [])
 
+  const firstScroll = useRef(true)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!messages.length) return
+    // La primera vez se salta al final (una conversación larga no debe "viajar" hasta
+    // abajo a la vista del usuario); a partir de ahí, suave.
+    bottomRef.current?.scrollIntoView({ behavior: firstScroll.current ? 'auto' : 'smooth' })
+    firstScroll.current = false
   }, [messages])
 
   useEffect(() => {
@@ -247,21 +257,34 @@ export function AgentDrawer({
   // Historial: antes la conversación se perdía al recargar.
   useEffect(() => {
     if (!handle) return
+    const key = `${projectId}:${handle}`
+    // Lo conocido primero (instantáneo, sin salto), y el servidor detrás.
+    const cached = historyCache.get(key)
+    if (cached) setMessages(cached)
+
     let alive = true
     getAgentHistoryFn({ data: { projectId, handle } })
       .then((rows) => {
         if (!alive || !rows.length) return
-        setMessages(rows.map((r, i) => ({
+        const msgs: Msg[] = rows.map((r, i) => ({
           id: `h-${i}`,
           role: r.role,
           content: r.body,
           streaming: false,
           created_tasks: [],
-        })))
+        }))
+        historyCache.set(key, msgs)
+        setMessages(msgs)
       })
       .catch(() => {})
     return () => { alive = false }
   }, [projectId, handle])
+
+  // Guardar lo que se va diciendo, para que reabrir el chat no parpadee.
+  useEffect(() => {
+    if (!handle || !messages.length) return
+    historyCache.set(`${projectId}:${handle}`, messages)
+  }, [messages, projectId, handle])
 
   async function pickAgent(h: string) {
     setHandle(h)
@@ -337,6 +360,7 @@ export function AgentDrawer({
 
   return (
     <motion.div
+      data-agent-drawer
       initial={{ x: '100%', opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: '100%', opacity: 0 }}

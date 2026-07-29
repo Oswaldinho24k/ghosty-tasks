@@ -343,9 +343,28 @@ export function TaskDetailPanel({
 
   // Esc cierra, como cualquier otro panel de la app.
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
   const [editingLabel, setEditingLabel] = useState<string | null>(null)
 
   useEffect(() => registerModalEsc(onClose), [onClose])
+
+  // Clic fuera cierra — con un listener, no con una capa encima. La capa se tragaba el
+  // primer clic: para abrir OTRA tarjeta había que hacer clic dos veces (uno para cerrar,
+  // otro para abrir). Así el clic llega a su destino y el panel se cierra solo.
+  //
+  // El chat del agente queda excluido a propósito: tocarlo no debe cerrarte la tarea que
+  // estás mirando.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement
+      if (panelRef.current?.contains(t)) return
+      if (t.closest('[data-agent-drawer]')) return
+      if (t.closest('[data-keep-detail]')) return
+      onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
 
   // Recargar cuando algo cambió esta tarea desde fuera (el agente, otra persona).
   useEffect(() => {
@@ -361,11 +380,8 @@ export function TaskDetailPanel({
 
   return (
     <>
-    {/* Clic fuera cierra el detalle. Va DEBAJO del chat del agente (z-40) a propósito:
-        tocar el chat no debe cerrarte la tarea que estás mirando, y perder lo que estás
-        escribiendo ahí sería peor. */}
-    <div className="fixed inset-x-0 bottom-0 top-14 z-20" onClick={onClose} />
     <motion.div
+      ref={panelRef}
       initial={{ x: '100%', opacity: 0 }}
       exit={{ x: '100%', opacity: 0 }}
       // Detrás del chat del agente, y recorrido a la izquierda cuando está abierto: así
