@@ -1,10 +1,10 @@
 import type { Task } from '../server/projects'
-import { PriorityBadge } from './PriorityBadge'
 import { MemberAvatar } from './MemberAvatar'
 import { CheckSquare, Calendar } from 'lucide-react'
 import { taskRef } from '../utils/taskRef'
 import { useProject } from '../utils/projectContext'
 import { priorityColor } from '../utils/priority'
+import { dueColor, dueLabel, dueLevel } from '../utils/due'
 
 type Member = { sub: string; name: string; avatar: string }
 
@@ -39,7 +39,7 @@ export function TaskCard({
   const assignee = members.find((m) => m.sub === task.assignee_sub)
   const hasDue = task.due_date != null
   const dueDate = hasDue ? new Date(task.due_date! * 1000) : null
-  const isOverdue = dueDate ? dueDate < new Date() && task.status !== 'done' : false
+  const level = dueDate ? dueLevel(dueDate, task.status) : null
   const hasChecklist = (checklistTotal ?? 0) > 0
 
   return (
@@ -104,17 +104,24 @@ export function TaskCard({
         <div className="flex items-center gap-2">
           {/* La referencia que se usa para hablar de esta tarea (estilo Linear/Jira). */}
           <span className="font-mono text-[10px] text-muted/70">{taskRef(projectName, task.id)}</span>
-          <PriorityBadge priority={task.priority} />
           {hasChecklist && (
             <span className="inline-flex items-center gap-0.5 text-xs text-muted">
               <CheckSquare size={11} />
               {checklistDone}/{checklistTotal}
             </span>
           )}
-          {dueDate && (
-            <span className={`inline-flex items-center gap-0.5 text-xs ${isOverdue ? 'text-red-400' : 'text-muted'}`}>
-              <Calendar size={11} />
-              {fmtDate(dueDate)}
+          {dueDate && level && (
+            // El punto NO es la prioridad (ésa es la franja de arriba): dice qué tan
+            // cerca está la fecha. Rojo hoy/vencida, ámbar dentro de la semana, gris
+            // después — la escala de Linear.
+            <span
+              className="inline-flex items-center gap-1 text-xs"
+              title={dueLabel(level, dueDate)}
+              style={{ color: level === 'far' || level === 'done' ? undefined : dueColor(level) }}
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dueColor(level) }} />
+              <Calendar size={11} className={level === 'far' || level === 'done' ? 'text-muted' : undefined} />
+              <span className={level === 'far' || level === 'done' ? 'text-muted' : undefined}>{fmtDate(dueDate)}</span>
             </span>
           )}
         </div>
