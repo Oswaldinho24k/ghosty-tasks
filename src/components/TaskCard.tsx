@@ -1,7 +1,8 @@
 import type { Task } from '../server/projects'
 import { PriorityBadge } from './PriorityBadge'
 import { MemberAvatar } from './MemberAvatar'
-import { CheckSquare, Calendar } from 'lucide-react'
+import { CheckSquare, Calendar, Sparkles } from 'lucide-react'
+import { taskRef } from '../utils/taskRef'
 import { useProject } from '../utils/projectContext'
 
 type Member = { sub: string; name: string; avatar: string }
@@ -12,6 +13,8 @@ export function TaskCard({
   checklistTotal,
   checklistDone,
   onClick,
+  onAskAgent,
+  projectName,
   draggable,
   onDragStart,
   onDragEnd,
@@ -22,6 +25,9 @@ export function TaskCard({
   checklistTotal?: number
   checklistDone?: number
   onClick: () => void
+  /** Abre el chat con la referencia ya escrita: hablar de una tarjeta sin teclear su id. */
+  onAskAgent?: (ref: string) => void
+  projectName: string
   draggable?: boolean
   onDragStart?: (e: React.DragEvent) => void
   onDragEnd?: () => void
@@ -52,9 +58,20 @@ export function TaskCard({
         <div className="absolute left-0 top-3 h-3/4 w-0.5 rounded-r-full" style={{ background: priorityColor(task.priority) }} />
       )}
 
-      <p className={`text-sm font-medium leading-snug text-ink ${task.status === 'done' ? 'line-through text-muted' : ''}`}>
-        {task.title}
-      </p>
+      <div className="flex items-start gap-2">
+        <p className={`flex-1 text-sm font-medium leading-snug text-ink ${task.status === 'done' ? 'line-through text-muted' : ''}`}>
+          {task.title}
+        </p>
+        {onAskAgent && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAskAgent(taskRef(projectName, task.id)) }}
+            title={`Hablar de ${taskRef(projectName, task.id)} con Ghosty`}
+            className="hidden shrink-0 rounded-md p-1 text-muted opacity-0 transition group-hover:opacity-100 hover:bg-surface-3 hover:text-brand sm:block"
+          >
+            <Sparkles size={12} />
+          </button>
+        )}
+      </div>
 
       {/* Labels */}
       {labels.length > 0 && (
@@ -78,6 +95,8 @@ export function TaskCard({
 
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
+          {/* La referencia que se usa para hablar de esta tarea (estilo Linear/Jira). */}
+          <span className="font-mono text-[10px] text-muted/70">{taskRef(projectName, task.id)}</span>
           <PriorityBadge priority={task.priority} />
           {hasChecklist && (
             <span className="inline-flex items-center gap-0.5 text-xs text-muted">

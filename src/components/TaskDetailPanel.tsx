@@ -14,6 +14,7 @@ import { MemberAvatar } from './MemberAvatar'
 import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
 import { AssigneePicker } from './AssigneePicker'
 import { registerModalEsc } from '../utils/modal-esc'
+import { taskRef } from '../utils/taskRef'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 type Detail = Awaited<ReturnType<typeof getTaskDetailFn>>
@@ -36,6 +37,8 @@ export function TaskDetailPanel({
   onLabelsChange,
   onTaskChanged,
   agentOpen,
+  refreshKey,
+  projectName,
 }: {
   taskId: number
   projectId: number
@@ -51,6 +54,9 @@ export function TaskDetailPanel({
   onTaskChanged?: (taskId: number, patch: Record<string, unknown>) => void
   /** Con el chat abierto, el detalle se recorre para no taparlo (ni taparse). */
   agentOpen?: boolean
+  /** Cambia cuando llega un evento de ESTA tarea (p. ej. el agente le añadió checklist). */
+  refreshKey?: number
+  projectName?: string
 }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -304,6 +310,11 @@ export function TaskDetailPanel({
   const [confirmArchive, setConfirmArchive] = useState(false)
 
   useEffect(() => registerModalEsc(onClose), [onClose])
+
+  // Recargar cuando algo cambió esta tarea desde fuera (el agente, otra persona).
+  useEffect(() => {
+    if (refreshKey) load()
+  }, [refreshKey])
   const everyone = team.length ? [...team, ...members.filter((m) => !team.some((t) => t.sub === m.sub))] : members
   const nameOf = (sub: string | null) => (sub ? everyone.find((m) => m.sub === sub)?.name ?? sub.slice(0, 8) : '')
   const assignee = detail ? everyone.find((m) => m.sub === detail.task.assignee_sub) : null
@@ -318,9 +329,9 @@ export function TaskDetailPanel({
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: '100%', opacity: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      // Por encima del chat del agente: el detalle es lo que acabas de abrir, y verlo
-      // debajo del drawer obliga a cerrar el agente para leer tu propia tarea.
-      className={`fixed inset-y-0 z-50 flex w-full max-w-lg flex-col border-l border-border bg-surface shadow-xl ${
+      // Detrás del chat del agente, y recorrido a la izquierda cuando está abierto: así
+      // se ven los dos y el chat manda (es donde estás escribiendo).
+      className={`fixed inset-y-0 z-30 flex w-full max-w-lg flex-col border-l border-border bg-surface shadow-xl ${
         agentOpen ? 'right-0 sm:right-[24rem]' : 'right-0'
       }`}
     >
@@ -335,7 +346,8 @@ export function TaskDetailPanel({
           >
             {detail?.task.status === 'done' && <Check size={11} />}
           </button>
-          <span className="text-xs text-muted font-mono">#{taskId}</span>
+          {/* La misma referencia que se ve en la tarjeta y con la que le hablas al agente. */}
+          <span className="font-mono text-xs text-muted">{projectName ? taskRef(projectName, taskId) : `#${taskId}`}</span>
         </div>
         <div className="flex items-center gap-1">
           <button onClick={() => setConfirmArchive(true)} className="rounded-lg p-1.5 text-muted hover:bg-red-50 hover:text-red-500 transition-colors">
@@ -396,7 +408,10 @@ export function TaskDetailPanel({
             {/* Due date */}
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5">
+                {/* Es un vencimiento: sin nombre, un campo de fecha suelto no dice si es
+                    cuándo empieza, cuándo vence o cuándo se creó. */}
                 <Calendar size={13} className="text-muted flex-shrink-0" />
+                <span className="text-xs text-muted">Vence</span>
                 <input
                   type="date"
                   value={tsToDateStr(detail.task.due_date)}

@@ -1,5 +1,6 @@
 import { dbq, num } from "../../dbq.server";
 import { defineAction, ActionInputError, type Action } from "./define";
+import { parseTaskRef, taskRef } from "../../utils/taskRef";
 import * as ops from "../ops/tasks.ops";
 
 // Las acciones del tablero. Cada una es lo mismo que haría una persona con el mouse, y
@@ -13,7 +14,11 @@ type Row = Record<string, string | null>;
 
 const PRIORITIES = ["urgent", "high", "medium", "low"];
 
-async function taskOf(projectId: number, id: number): Promise<Row> {
+async function taskOf(projectId: number, ref: number | string): Promise<Row> {
+  // Acepta "GST-4", "#4" o 4: la gente le habla al agente con la referencia que ve en la
+  // tarjeta, no con el id interno.
+  const id = parseTaskRef(ref);
+  if (!id) throw new ActionInputError(`no entiendo la referencia "${ref}"`);
   const rows = await dbq("SELECT * FROM task_tasks WHERE id = ? AND project_id = ?", [id, projectId]);
   // Acotado al tablero del token: un id de otro proyecto no existe para esta sesión.
   if (!rows[0]) throw new ActionInputError(`no encuentro la tarea ${id} en este tablero`);
@@ -84,9 +89,13 @@ const listBoard = defineAction({
     const { listWorkspaceMembers } = await import("../../users.server");
     const members = await listWorkspaceMembers().catch(() => []);
     const byId = new Map(members.map((m) => [m.sub, m.name]));
+    const proj = await dbq("SELECT name FROM task_projects WHERE id = ?", [ctx.projectId]);
+    const pname = proj[0]?.name ?? "";
     return {
       columns: cols.map((c) => ({ id: num(c.id), name: c.name })),
+      // `ref` es lo que la persona ve en la tarjeta: úsalo al hablar de una tarea.
       tasks: tasks.map((t) => ({
+        ref: taskRef(pname, num(t.id)),
         id: num(t.id),
         title: t.title,
         column_id: num(t.column_id),
@@ -147,9 +156,12 @@ const findTasks = defineAction({
         WHERE ${where.join(" AND ")} ORDER BY updated_at DESC LIMIT 25`,
       args
     );
+    const proj = await dbq("SELECT name FROM task_projects WHERE id = ?", [ctx.projectId]);
+    const pname = proj[0]?.name ?? "";
     return {
       count: rows.length,
       tasks: rows.map((t) => ({
+        ref: taskRef(pname, num(t.id)),
         id: num(t.id),
         title: t.title,
         column_id: num(t.column_id),
@@ -221,14 +233,15 @@ const moveTask = defineAction({
   name: "move_task",
   description: "Mueve una tarea a otra columna (queda al final de esa columna).",
   schema: {
-    id: { type: "number", description: "id de la tarea", required: true },
+    id: { type: "string", description: 'Referencia de la tarea, como aparece en la tarjeta ("GST-4"); también acepta el número', required: true },
     column: { type: "string", description: "Nombre de la columna destino", required: true },
   },
-  async run(ctx, input: { id: number; column: string }) {
-    await taskOf(ctx.projectId, input.id);
+  async run(ctx, input: { id: string; column: string }) {
+    const t = await taskOf(ctx.projectId, input.id);
+    const id = num(t.id);
     const col = await columnByName(ctx.projectId, input.column);
-    await ops.moveTaskToColumn(ctx.sub, { id: input.id, project_id: ctx.projectId, column_id: col.id });
-    return { id: input.id, column: col.name };
+    await ops.moveTaskToColumn(ctx.sub, { id, project_id: ctx.projectId, column_id: col.id });
+    return { id, column: col.name };
   },
 });
 
@@ -236,7 +249,7 @@ const updateTask = defineAction({
   name: "update_task",
   description: "Cambia campos de una tarea: título, descripción, prioridad, estado o a quién está asignada.",
   schema: {
-    id: { type: "number", description: "id de la tarea", required: true },
+    id: { type: "string", description: 'Referencia de la tarea, como aparece en la tarjeta ("GST-4"); también acepta el número', required: true },
     title: { type: "string", description: "Nuevo título" },
     description: { type: "string", description: "Nueva descripción" },
     priority: { type: "string", description: "Prioridad", enum: PRIORITIES },
@@ -246,8 +259,9 @@ const updateTask = defineAction({
       description: 'A quién se asigna: nombre, @handle, correo, "yo" — o "none" para dejarla sin asignar',
     },
   },
-  async run(ctx, input: { id: number; title?: string; description?: string; priority?: string; status?: string; assignee?: string }) {
-    await taskOf(ctx.projectId, input.id);
+  async run(ctx, input: { id: string; title?: string; description?: string; priority?: string; status?: string; assignee?: string }) {
+    const t = await taskOf(ctx.projectId, input.id);
+    const id = num(t.id);
     let assignee: string | null | undefined;
     if (input.assignee === "none") assignee = null;
     else if (input.assignee) {
@@ -258,7 +272,7 @@ const updateTask = defineAction({
       assignee = who.sub;
     }
     await ops.updateTask(ctx.sub, {
-      id: input.id,
+      id,
       project_id: ctx.projectId,
       title: input.title,
       description: input.description,
@@ -266,7 +280,7 @@ const updateTask = defineAction({
       status: input.status,
       assignee_sub: assignee,
     });
-    return { ok: true, id: input.id };
+    return { ok: true, id };
   },
 });
 
@@ -297,14 +311,15 @@ const setLabels = defineAction({
   name: "set_labels",
   description: "Añade o quita etiquetas de una tarea. Las que ya tiene se conservan salvo que las quites.",
   schema: {
-    id: { type: "number", description: "id de la tarea", required: true },
+    id: { type: "string", description: 'Referencia de la tarea, como aparece en la tarjeta ("GST-4"); también acepta el número', required: true },
     add: { type: "string[]", description: "Etiquetas a añadir" },
     remove: { type: "string[]", description: "Etiquetas a quitar" },
   },
-  async run(ctx, input: { id: number; add?: string[]; remove?: string[] }) {
-    await taskOf(ctx.projectId, input.id);
-    const labels = await setLabelsOn(ctx, input.id, input.add ?? [], input.remove ?? []);
-    return { id: input.id, labels };
+  async run(ctx, input: { id: string; add?: string[]; remove?: string[] }) {
+    const t = await taskOf(ctx.projectId, input.id);
+    const id = num(t.id);
+    const labels = await setLabelsOn(ctx, id, input.add ?? [], input.remove ?? []);
+    return { id, labels };
   },
 });
 
@@ -312,16 +327,17 @@ const commentTask = defineAction({
   name: "comment_task",
   description: "Comenta en una tarea. El comentario queda a nombre de la persona que te pidió el trabajo.",
   schema: {
-    id: { type: "number", description: "id de la tarea", required: true },
+    id: { type: "string", description: 'Referencia de la tarea, como aparece en la tarjeta ("GST-4"); también acepta el número', required: true },
     body: { type: "string", description: "Texto del comentario", required: true },
   },
-  async run(ctx, input: { id: number; body: string }) {
-    await taskOf(ctx.projectId, input.id);
+  async run(ctx, input: { id: string; body: string }) {
+    const t = await taskOf(ctx.projectId, input.id);
+    const id = num(t.id);
     const { listWorkspaceMembers } = await import("../../users.server");
     const me = (await listWorkspaceMembers().catch(() => [])).find((m) => m.sub === ctx.sub);
     const c = await ops.addComment(
       { sub: ctx.sub, name: me?.name ?? "Alguien", avatar: me?.avatar ?? "" },
-      { task_id: input.id, body: input.body }
+      { task_id: id, body: input.body }
     );
     return { id: c.id };
   },
@@ -331,12 +347,13 @@ const addChecklistItem = defineAction({
   name: "add_checklist_item",
   description: "Añade un ítem al checklist de una tarea.",
   schema: {
-    id: { type: "number", description: "id de la tarea", required: true },
+    id: { type: "string", description: 'Referencia de la tarea, como aparece en la tarjeta ("GST-4"); también acepta el número', required: true },
     body: { type: "string", description: "Texto del ítem", required: true },
   },
-  async run(ctx, input: { id: number; body: string }) {
-    await taskOf(ctx.projectId, input.id);
-    const item = await ops.addChecklistItem(ctx.sub, { task_id: input.id, body: input.body });
+  async run(ctx, input: { id: string; body: string }) {
+    const t = await taskOf(ctx.projectId, input.id);
+    const id = num(t.id);
+    const item = await ops.addChecklistItem(ctx.sub, { task_id: id, body: input.body });
     return item;
   },
 });
@@ -347,16 +364,17 @@ const deleteTask = defineAction({
     "Archiva una tarea: sale del tablero pero se puede recuperar. Sin confirm=true solo te dice cuál sería, para que se lo preguntes al usuario primero.",
   destructive: true,
   schema: {
-    id: { type: "number", description: "id de la tarea", required: true },
+    id: { type: "string", description: 'Referencia de la tarea, como aparece en la tarjeta ("GST-4"); también acepta el número', required: true },
     confirm: { type: "boolean", description: "true para archivarla de verdad" },
   },
-  async run(ctx, input: { id: number; confirm?: boolean }) {
+  async run(ctx, input: { id: string; confirm?: boolean }) {
     const t = await taskOf(ctx.projectId, input.id);
+    const id = num(t.id);
     if (!input.confirm) {
-      return { needs: "confirmation" as const, would_archive: { id: input.id, title: t.title } };
+      return { needs: "confirmation" as const, would_archive: { id, title: t.title } };
     }
-    await ops.deleteTask(ctx.sub, { id: input.id, project_id: ctx.projectId });
-    return { ok: true, archived: input.id, note: "se puede recuperar" };
+    await ops.deleteTask(ctx.sub, { id, project_id: ctx.projectId });
+    return { ok: true, archived: id, note: "se puede recuperar" };
   },
 });
 

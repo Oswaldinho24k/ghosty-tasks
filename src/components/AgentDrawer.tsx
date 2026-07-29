@@ -114,11 +114,16 @@ export function AgentDrawer({
   onClose,
   projectId,
   columns,
+  seed,
+  onSeedUsed,
   onRegisterEventCallback,
 }: {
   onClose: () => void
   projectId: number
   columns: Column[]
+  /** Texto con el que abrir el input (p. ej. la referencia de una tarea). */
+  seed?: string | null
+  onSeedUsed?: () => void
   onRegisterEventCallback: (cb: ((ev: AgentEvent) => void) | null) => void
 }) {
   const [messages, setMessages] = useState<Msg[]>([])
@@ -179,6 +184,14 @@ export function AgentDrawer({
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 100)
   }, [])
+
+  // Llegaste desde una tarjeta: el input arranca con su referencia y el cursor al final.
+  useEffect(() => {
+    if (!seed) return
+    setInput((prev) => (prev.includes(seed.trim()) ? prev : prev ? `${prev} ${seed}` : seed))
+    setTimeout(() => inputRef.current?.focus(), 40)
+    onSeedUsed?.()
+  }, [seed])
 
   // Los agentes del EQUIPO (los que activaste en Ghosty Teams) y cuál quedó elegido
   // para este tablero. La elección vive en la DB, así que es la misma en el teléfono.

@@ -6,6 +6,9 @@ export type Member = { sub: string; name: string; avatar: string; handle: string
 
 export type ProjectContextValue = {
   projectId: number
+  projectName: string
+  /** Abre el chat del agente con la referencia de una tarea ya escrita. */
+  onAskAgent: (ref: string) => void
   columns: Column[]
   tasks: Task[]
   /** Equipo completo del workspace: sirve para PINTAR a cualquiera (autores, asignados). */

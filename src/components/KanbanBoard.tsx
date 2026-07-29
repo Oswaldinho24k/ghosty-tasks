@@ -37,7 +37,7 @@ export function KanbanBoard({
   onTasksChange: (tasks: Task[]) => void
 }) {
   // Ver es de todo el workspace; arrastrar tarjetas, solo de quien participa.
-  const { canEdit } = useProject()
+  const { canEdit, projectName, onAskAgent } = useProject()
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const [addingCol, setAddingCol] = useState(false)
   const [colName, setColName] = useState('')
@@ -329,6 +329,8 @@ export function KanbanBoard({
                       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                     >
                       <TaskCard
+                        projectName={projectName}
+                        onAskAgent={onAskAgent}
                         task={task}
                         members={members}
                         onClick={() => onTaskClick(task)}

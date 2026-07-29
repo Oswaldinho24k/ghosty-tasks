@@ -51,6 +51,13 @@ function ProjectShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [createTaskOpen, setCreateTaskOpen] = useState(false)
   const [agentOpen, setAgentOpen] = useState(false)
+  const [agentSeed, setAgentSeed] = useState<string | null>(null)
+  // El panel de detalle se recarga cuando llega un evento de SU tarea: el agente puede
+  // añadirle checklist o comentarios mientras lo tienes abierto, y antes se quedaba
+  // congelado hasta cerrarlo y volverlo a abrir.
+  const [detailRefresh, setDetailRefresh] = useState(0)
+  const selectedTaskRef = useRef<number | null>(null)
+  selectedTaskRef.current = selectedTaskId
   const agentEventCallback = useRef<((ev: WwEvent) => void) | null>(null)
 
   const currentView = typeof window !== 'undefined'
@@ -104,8 +111,22 @@ function ProjectShell() {
     } catch {}
   }, [slug])
 
+  // ¿Este evento habla de la tarea que tengo abierta?
+  const touchesOpenTask = (ev: WwEvent): boolean => {
+    const id = selectedTaskRef.current
+    if (id == null) return false
+    if (ev.t === 'checklist:updated' || ev.t === 'comment:created' || ev.t === 'comment:updated' || ev.t === 'comment:deleted') {
+      return ev.task_id === id
+    }
+    if (ev.t === 'task:updated' || ev.t === 'task:moved') return ev.id === id
+    return false
+  }
+
   useLiveStream({
     onEvent: (ev: WwEvent) => {
+      // Si el evento habla de la tarea que tengo abierta, recargar su panel: el agente
+      // puede añadirle checklist o comentarios mientras la miras.
+      if (touchesOpenTask(ev)) setDetailRefresh((n) => n + 1)
       if (ev.t === 'task:created') {
         if (ev.task.project_id === initial.project.id) {
           setTasks((prev) => {
@@ -277,6 +298,13 @@ function ProjectShell() {
         <div className="flex-1 overflow-hidden">
           <ProjectContext.Provider value={{
             projectId: initial.project.id,
+            projectName: project.name,
+            onAskAgent: (ref: string) => {
+              // Abrir el chat ya hablando de ESA tarjeta: sin esto había que copiar el id
+              // a mano, que es justo lo que la referencia visible vino a evitar.
+              setAgentSeed(`${ref} `)
+              setAgentOpen(true)
+            },
             columns,
             tasks,
             members,
@@ -310,6 +338,8 @@ function ProjectShell() {
             }}
             onLabelsChange={(taskId, labels) => setTaskLabels((prev) => ({ ...prev, [taskId]: labels }))}
             agentOpen={agentOpen}
+            refreshKey={detailRefresh}
+            projectName={project.name}
             onTaskChanged={(id, patch) =>
               setTasks((prev) => prev.map((t) => (t.id === id ? ({ ...t, ...patch } as Task) : t)))
             }
@@ -365,6 +395,8 @@ function ProjectShell() {
       <AnimatePresence>
         {agentOpen && (
           <AgentDrawer
+            seed={agentSeed}
+            onSeedUsed={() => setAgentSeed(null)}
             onClose={() => setAgentOpen(false)}
             projectId={initial.project.id}
             columns={columns}
