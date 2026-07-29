@@ -363,7 +363,10 @@ function ProjectShell() {
         {settingsOpen && (
           <ProjectSettingsPanel
             project={project}
-            members={members}
+            // Los del TABLERO, no el equipo entero: la lista fusionada existe para pintar
+            // caras (un asignado que no está en el proyecto igual necesita avatar), y
+            // usarla aquí hacía que Ajustes anunciara a todo el workspace como miembro.
+            members={projectMembers}
             isOwner={initial.isOwner}
             currentSub={initial.currentSub}
             onClose={() => setSettingsOpen(false)}
