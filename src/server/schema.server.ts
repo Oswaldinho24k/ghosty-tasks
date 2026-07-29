@@ -195,6 +195,9 @@ const COLUMNS: Array<[string, string, string]> = [
   // Borrar una tarea es tirar trabajo: se archiva y deja de verse, pero se puede
   // recuperar. Nadie quiere descubrir que el botón de la basura era literal.
   ["task_tasks", "archived", "INTEGER NOT NULL DEFAULT 0"],
+  // Última vez que esta persona entró. Sirve para ordenar la lista de miembros por quien
+  // está activo, en vez de alfabéticamente: en un equipo grande eso es lo que importa.
+  ["gc_users", "last_seen_at", "INTEGER"],
 ];
 
 async function migrate(): Promise<void> {

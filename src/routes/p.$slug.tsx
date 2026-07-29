@@ -290,7 +290,8 @@ function ProjectShell() {
               <span className="hidden sm:inline">Ghosty</span>
             </button>
             <button
-              onClick={() => setSettingsOpen(true)}
+              data-settings-toggle
+              onClick={() => setSettingsOpen((v) => !v)}
               className="rounded-lg p-1.5 text-muted hover:bg-surface-3 hover:text-ink transition-colors"
               title="Ajustes del proyecto"
             >
@@ -351,6 +352,7 @@ function ProjectShell() {
             }}
             onLabelsChange={(taskId, labels) => setTaskLabels((prev) => ({ ...prev, [taskId]: labels }))}
             agentOpen={agentOpen}
+            settingsOpen={settingsOpen}
             refreshKey={detailRefresh}
             projectName={project.name}
             onTaskChanged={(id, patch) =>

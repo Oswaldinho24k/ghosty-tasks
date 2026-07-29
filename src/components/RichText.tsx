@@ -4,6 +4,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { Markdown as MarkdownExt } from 'tiptap-markdown'
 import { useEffect, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
+import { Bold, Italic, Strikethrough, Link2, List, ListOrdered, Quote, Code } from 'lucide-react'
 
 // tiptap-markdown cuelga su API del storage del editor y no la tipa.
 const md = (ed: Editor): string =>
@@ -78,31 +79,46 @@ export function RichText({
 
   if (!editor) return null
 
-  // Barra de formato: sin ella el editor se ve igual que el textarea de antes y nadie
-  // descubre que hay negritas o listas. Aparece al enfocar para no ensuciar la lectura.
+  // Calcado del compositor de Ghosty Teams: íconos, no letras sueltas, y siempre visible
+  // —esconderla en hover la vuelve un secreto—.
   const tools = [
-    { on: 'bold', run: () => editor.chain().focus().toggleBold().run(), label: 'B', className: 'font-bold' },
-    { on: 'italic', run: () => editor.chain().focus().toggleItalic().run(), label: 'i', className: 'italic' },
-    { on: 'bulletList', run: () => editor.chain().focus().toggleBulletList().run(), label: '•', className: '' },
-    { on: 'orderedList', run: () => editor.chain().focus().toggleOrderedList().run(), label: '1.', className: '' },
-    { on: 'code', run: () => editor.chain().focus().toggleCode().run(), label: '</>', className: 'font-mono text-[10px]' },
+    { icon: Bold, title: 'Negrita', active: editor.isActive('bold'), fn: () => editor.chain().focus().toggleBold().run() },
+    { icon: Italic, title: 'Itálica', active: editor.isActive('italic'), fn: () => editor.chain().focus().toggleItalic().run() },
+    { icon: Strikethrough, title: 'Tachado', active: editor.isActive('strike'), fn: () => editor.chain().focus().toggleStrike().run() },
+    {
+      icon: Link2,
+      title: 'Enlace',
+      active: editor.isActive('link'),
+      fn: () => {
+        const prev = editor.getAttributes('link').href as string | undefined
+        const url = window.prompt('URL del enlace', prev || 'https://')
+        if (url === null) return
+        if (url === '') editor.chain().focus().extendMarkRange('link').unsetLink().run()
+        else editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+      },
+    },
+    { icon: List, title: 'Lista', active: editor.isActive('bulletList'), fn: () => editor.chain().focus().toggleBulletList().run() },
+    { icon: ListOrdered, title: 'Lista numerada', active: editor.isActive('orderedList'), fn: () => editor.chain().focus().toggleOrderedList().run() },
+    { icon: Quote, title: 'Cita', active: editor.isActive('blockquote'), fn: () => editor.chain().focus().toggleBlockquote().run() },
+    { icon: Code, title: 'Código', active: editor.isActive('code'), fn: () => editor.chain().focus().toggleCode().run() },
   ]
 
   return (
-    <div className="group">
-      <div className="mb-1 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-        {tools.map((t) => (
+    <div>
+      <div className="mb-1 flex items-center gap-0.5">
+        {tools.map((tool, i) => (
           <button
-            key={t.on}
+            key={i}
             type="button"
-            // mousedown + preventDefault: con click, el editor pierde el foco antes de
-            // aplicar el formato (y dispararía el guardado del onBlur).
-            onMouseDown={(e) => { e.preventDefault(); t.run() }}
-            className={`h-6 w-6 rounded text-xs transition-colors ${t.className} ${
-              editor.isActive(t.on) ? 'bg-brand/15 text-brand' : 'text-muted hover:bg-surface-3 hover:text-ink'
+            title={tool.title}
+            // No robarle el foco al editor: con click se pierde y además dispara el guardado.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={tool.fn}
+            className={`grid h-7 w-7 place-items-center rounded-md transition hover:bg-surface-2 hover:text-ink ${
+              tool.active ? 'bg-surface-2 text-brand' : 'text-muted'
             }`}
           >
-            {t.label}
+            <tool.icon size={15} />
           </button>
         ))}
       </div>

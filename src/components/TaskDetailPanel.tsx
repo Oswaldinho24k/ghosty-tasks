@@ -50,6 +50,7 @@ export function TaskDetailPanel({
   onLabelsChange,
   onTaskChanged,
   agentOpen,
+  settingsOpen,
   refreshKey,
   projectName,
 }: {
@@ -67,6 +68,8 @@ export function TaskDetailPanel({
   onTaskChanged?: (taskId: number, patch: Record<string, unknown>) => void
   /** Con el chat abierto, el detalle se recorre para no taparlo (ni taparse). */
   agentOpen?: boolean
+  /** Igual con Ajustes del proyecto, que es más ancho. */
+  settingsOpen?: boolean
   /** Cambia cuando llega un evento de ESTA tarea (p. ej. el agente le añadió checklist). */
   refreshKey?: number
   projectName?: string
@@ -394,7 +397,7 @@ export function TaskDetailPanel({
       // chat lo hace CSS sobre `right`. Animar las dos cosas con motion hacía que el panel
       // entrara hasta la derecha y luego saltara: eran dos animaciones peleándose.
       className={`fixed bottom-0 top-14 z-30 flex w-full max-w-lg flex-col border-l border-t border-border bg-surface shadow-xl transition-[right] duration-300 ease-out ${
-        agentOpen ? 'right-0 sm:right-96' : 'right-0'
+        settingsOpen ? 'right-0 sm:right-[28rem]' : agentOpen ? 'right-0 sm:right-96' : 'right-0'
       }`}
     >
       {/* Header */}

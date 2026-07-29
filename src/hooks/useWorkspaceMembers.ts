@@ -18,7 +18,7 @@ export function useWorkspaceMembers(enabled = true): WorkspaceMember[] {
   useEffect(() => {
     if (!enabled || cache) return
     let alive = true
-    inflight = inflight ?? listWorkspaceUsersFn().then((r) => (cache = r))
+    inflight = inflight ?? listWorkspaceUsersFn({ data: {} }).then((r) => (cache = r))
     inflight
       .then((r) => { if (alive) setMembers(r) })
       .catch(() => {})

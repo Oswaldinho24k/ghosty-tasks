@@ -41,11 +41,13 @@ export const removeProjectMemberFn = createServerFn({ method: "POST" })
 // listar `gc_users` sería listar "quien ya entró", y a alguien recién agregado al
 // equipo no se le podría ni asignar una tarea. El perfil (nombre, avatar, handle) sí
 // es local — ver users.server.ts.
-export const listWorkspaceUsersFn = createServerFn({ method: "GET" }).handler(async () => {
+export const listWorkspaceUsersFn = createServerFn({ method: "GET" })
+  .validator((d: { q?: string; limit?: number } | undefined) => d ?? {})
+  .handler(async ({ data }) => {
   await ensureSchema();
   await getUserSub();
   const { listWorkspaceMembers } = await import("../users.server");
-  const members = await listWorkspaceMembers();
+  const members = await listWorkspaceMembers({ q: data.q, limit: data.limit });
   return members.map((m) => ({
     sub: m.sub,
     name: m.name,
@@ -53,4 +55,4 @@ export const listWorkspaceUsersFn = createServerFn({ method: "GET" }).handler(as
     handle: m.handle,
     isOwner: m.isOwner,
   }));
-});
+  });

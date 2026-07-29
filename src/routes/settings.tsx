@@ -1,14 +1,17 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { me } from '../server/auth'
 import { listWorkspaceUsersFn } from '../server/members'
-import { Users, Crown, Shield } from 'lucide-react'
+import { Users, Crown, Shield, Search } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { MemberAvatar } from '../components/MemberAvatar'
 
 export const Route = createFileRoute('/settings')({
   loader: async () => {
     const [user, workspaceMembers] = await Promise.all([
       me(),
-      listWorkspaceUsersFn(),
+      // Solo los últimos que entraron: el resto se busca. Cargar el padrón completo
+      // funciona con ocho personas y es inmanejable con cien.
+      listWorkspaceUsersFn({ data: { limit: 12 } }),
     ])
     return { user, workspaceMembers }
   },
@@ -17,6 +20,19 @@ export const Route = createFileRoute('/settings')({
 
 function Settings() {
   const { user, workspaceMembers } = Route.useLoaderData()
+  const [members, setMembers] = useState(workspaceMembers)
+  const [q, setQ] = useState('')
+
+  // Buscar consulta al servidor (con un respiro para no pedir por cada tecla): la lista
+  // que se ve son los últimos activos, no todo el equipo.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      listWorkspaceUsersFn({ data: { q: q.trim(), limit: q.trim() ? 20 : 12 } })
+        .then(setMembers)
+        .catch(() => {})
+    }, 220)
+    return () => clearTimeout(t)
+  }, [q])
 
   return (
     <div className="mx-auto max-w-lg py-10 px-6 space-y-5">
@@ -51,10 +67,23 @@ function Settings() {
         <div className="flex items-center gap-2 mb-4">
           <Users size={16} className="text-muted" />
           <h2 className="text-sm font-semibold text-ink">Miembros del workspace</h2>
-          <span className="text-xs text-muted">({workspaceMembers.length})</span>
+        </div>
+        {/* Buscador: la lista muestra a los últimos que entraron, no a todo el equipo —
+            con cien personas nadie la lee entera y cargarla completa es tirar datos. */}
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 focus-within:border-brand">
+          <Search size={13} className="shrink-0 text-muted" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar a alguien del equipo…"
+            className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
+          />
         </div>
         <div className="space-y-1">
-          {workspaceMembers.map((m) => (
+          {members.length === 0 && (
+            <p className="py-4 text-center text-sm text-muted">Nadie coincide con esa búsqueda.</p>
+          )}
+          {members.map((m) => (
             <div key={m.sub} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-3 transition-colors">
               <MemberAvatar name={m.name} avatar={m.avatar} size={32} />
               <div className="flex-1 min-w-0">

@@ -34,7 +34,7 @@ export function SettingsModal({
   useEffect(() => {
     if (!open) return
     setLoading(true)
-    Promise.all([me(), listWorkspaceUsersFn()])
+    Promise.all([me(), listWorkspaceUsersFn({ data: { limit: 12 } })])
       .then(([u, ws]) => { setUser(u); setMembers(ws) })
       .finally(() => setLoading(false))
   }, [open])

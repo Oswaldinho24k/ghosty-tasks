@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Trash2, Users, UserMinus } from 'lucide-react'
 import { motion } from 'motion/react'
+import { registerModalEsc } from '../utils/modal-esc'
 import { Rocket, Layers, Target, Palette } from 'lucide-react'
 import { toast } from 'sonner'
 import { updateProjectFn } from '../server/projects'
@@ -50,6 +51,22 @@ export function ProjectSettingsPanel({
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const [membersOpen, setMembersOpen] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Esc y clic fuera cierran, como el resto de paneles. El engrane queda exento porque
+  // ya alterna: si no, el clic cerraría y el toggle volvería a abrir.
+  useEffect(() => registerModalEsc(onClose), [onClose])
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement
+      if (panelRef.current?.contains(t)) return
+      if (t.closest('[data-settings-toggle]')) return
+      onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
 
   const ProjectIcon = ICON_MAP[icon] ?? Layers
 
@@ -228,17 +245,8 @@ export function ProjectSettingsPanel({
           <section>
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-red-400">Zona de peligro</p>
             <button
-              onClick={async () => {
-                if (!confirm(`¿Archivar "${project.name}"? Puedes restaurarlo desde ajustes.`)) return
-                try {
-                  await updateProjectFn({ data: { id: project.id, archived: true } })
-                  toast.success('Proyecto archivado')
-                  window.location.href = '/'
-                } catch {
-                  toast.error('Error al archivar proyecto')
-                }
-              }}
-              className="flex items-center gap-1.5 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950/30"
+              onClick={() => setConfirmArchive(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-red-500/40 px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:border-red-500 hover:bg-red-500/10"
             >
               <Trash2 size={14} />
               Archivar proyecto
@@ -246,6 +254,40 @@ export function ProjectSettingsPanel({
           </section>
         )}
       </div>
+      {confirmArchive && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmArchive(false)}>
+          <div className="w-full max-w-xs rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-ink">¿Archivar "{project.name}"?</h3>
+            <p className="mt-1.5 text-sm text-muted">
+              El tablero deja de aparecer, pero no se borra: sus tareas, comentarios y
+              bitácora se conservan y se puede restaurar.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmArchive(false)}
+                className="rounded-lg px-3 py-1.5 text-sm text-muted transition hover:bg-surface-3 hover:text-ink"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  setConfirmArchive(false)
+                  try {
+                    await updateProjectFn({ data: { id: project.id, archived: true } })
+                    toast.success('Proyecto archivado')
+                    window.location.href = '/'
+                  } catch {
+                    toast.error('No se pudo archivar el proyecto')
+                  }
+                }}
+                className="rounded-lg bg-red-500 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-red-600"
+              >
+                Archivar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   )
 }

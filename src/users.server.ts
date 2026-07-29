@@ -64,7 +64,11 @@ export async function upsertUser(
     }
     // El email sí converge (es la identidad), y el rol también: si en gs te hicieron
     // owner, la proyección tiene que enterarse.
-    await dbq("UPDATE gc_users SET email=?, is_owner=? WHERE sub=?", [id.email, isOwner ? 1 : 0, id.sub]);
+    await dbq("UPDATE gc_users SET email=?, is_owner=?, last_seen_at=unixepoch() WHERE sub=?", [
+      id.email,
+      isOwner ? 1 : 0,
+      id.sub,
+    ]);
     return {
       ...id,
       name: (existing[0].name as string) || id.name,
@@ -98,14 +102,21 @@ export type WorkspaceMember = {
  * Listar `gc_users` sería listar "quien ya entró", no "quien pertenece": alguien
  * recién agregado al equipo no aparecería y no se le podría asignar una tarea.
  */
-export async function listWorkspaceMembers(): Promise<WorkspaceMember[]> {
+/**
+ * Miembros del workspace, ordenados por quién entró más recientemente y acotados.
+ *
+ * Cargar el padrón completo funciona con ocho personas y se vuelve inmanejable con
+ * ciento: la lista crece sin control y nadie la lee entera. Se muestran los últimos y el
+ * resto se busca.
+ */
+export async function listWorkspaceMembers(opts?: { q?: string; limit?: number }): Promise<WorkspaceMember[]> {
   const roster = await workspaceRoster().catch(() => []);
 
   // Perfiles que YA existen en la DB de este workspace: quien tiene fila aquí entró por
   // Teams, o sea que pertenece de hecho.
   let profiles: Row[] = [];
   try {
-    profiles = await dbq("SELECT sub, handle, name, email, avatar, is_owner FROM gc_users");
+    profiles = await dbq("SELECT sub, handle, name, email, avatar, is_owner, last_seen_at FROM gc_users");
   } catch {
     /* workspace virgen */
   }
@@ -145,6 +156,28 @@ export async function listWorkspaceMembers(): Promise<WorkspaceMember[]> {
     });
   }
 
-  return [...bySub.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const seen = new Map(profiles.map((p) => [p.sub ?? "", Number(p.last_seen_at ?? 0)]));
+  let out = [...bySub.values()];
+
+  const q = (opts?.q ?? "").trim().toLowerCase();
+  if (q) {
+    out = out.filter(
+      (m) =>
+        m.name.toLowerCase().includes(q) ||
+        m.handle.toLowerCase().includes(q) ||
+        m.email.toLowerCase().includes(q)
+    );
+  }
+
+  // Primero quien estuvo hace menos; los que nunca han entrado, al final por nombre.
+  out.sort((a, b) => {
+    const sa = seen.get(a.sub) ?? 0;
+    const sb = seen.get(b.sub) ?? 0;
+    if (sa !== sb) return sb - sa;
+    return a.name.localeCompare(b.name);
+  });
+
+  const limit = opts?.limit ?? 0;
+  return limit > 0 ? out.slice(0, limit) : out;
 }
 
