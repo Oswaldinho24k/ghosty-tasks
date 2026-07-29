@@ -1,14 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { dbq, num } from "../dbq.server";
 import { ensureSchema } from "./schema.server";
-import { publish, ch } from "./bus.server";
 
 export type Label = { label: string; color: string };
-
-async function getProjectId(task_id: number): Promise<number> {
-  const rows = await dbq("SELECT project_id FROM task_tasks WHERE id = ?", [task_id]);
-  return num(rows[0]?.project_id);
-}
 
 async function getUserSub(): Promise<string> {
   const { useSession } = await import("@tanstack/react-start/server");
@@ -28,20 +22,22 @@ export const getTaskLabelsFn = createServerFn({ method: "GET" })
     return rows.map((r) => ({ label: r.label ?? "", color: r.color ?? "#6b7280" }));
   });
 
+// Una sola implementación: la de las ops, que además comprueba que quien edita participe
+// en el tablero. Antes había dos copias de "poner etiquetas" y solo una tenía permiso.
 export const setTaskLabelsFn = createServerFn({ method: "POST" })
   .validator((d: { task_id: number; labels: Label[] }) => d)
   .handler(async ({ data }) => {
     await ensureSchema();
-    await getUserSub();
-    await dbq("DELETE FROM task_labels WHERE task_id = ?", [data.task_id]);
-    for (const { label, color } of data.labels) {
-      await dbq(
-        "INSERT INTO task_labels (task_id, label, color) VALUES (?, ?, ?)",
-        [data.task_id, label, color]
-      );
+    const sub = await getUserSub();
+    try {
+      const ops = await import("./ops/tasks.ops");
+      await ops.setTaskLabels(sub, { task_id: data.task_id, labels: data.labels });
+    } catch (e) {
+      // Sin esto, cualquier fallo del servidor llegaba al cliente como un "Error al
+      // agregar label" sin más, imposible de diagnosticar.
+      console.error(`[labels] task=${data.task_id}:`, e);
+      throw e;
     }
-    const project_id = await getProjectId(data.task_id);
-    publish(ch.project(project_id), { t: "task:updated", id: data.task_id, patch: { labels: data.labels } });
     return data.labels;
   });
 

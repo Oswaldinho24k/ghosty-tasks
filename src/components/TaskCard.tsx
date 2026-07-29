@@ -1,7 +1,7 @@
 import type { Task } from '../server/projects'
 import { PriorityBadge } from './PriorityBadge'
 import { MemberAvatar } from './MemberAvatar'
-import { CheckSquare, Calendar, Sparkles } from 'lucide-react'
+import { CheckSquare, Calendar } from 'lucide-react'
 import { taskRef } from '../utils/taskRef'
 import { useProject } from '../utils/projectContext'
 
@@ -53,9 +53,13 @@ export function TaskCard({
         ${task.status === 'done' ? 'opacity-60' : ''}
         border-border`}
     >
-      {/* Priority dot */}
+      {/* Prioridad como barra SUPERIOR: se lee como parte de la tarjeta y no compite con
+          el borde izquierdo de la columna. */}
       {task.priority && (
-        <div className="absolute left-0 top-3 h-3/4 w-0.5 rounded-r-full" style={{ background: priorityColor(task.priority) }} />
+        <div
+          className="absolute inset-x-0 top-0 h-1 rounded-t-xl"
+          style={{ background: priorityColor(task.priority) }}
+        />
       )}
 
       <div className="flex items-start gap-2">
@@ -68,7 +72,7 @@ export function TaskCard({
             title={`Hablar de ${taskRef(projectName, task.id)} con Ghosty`}
             className="hidden shrink-0 rounded-md p-1 text-muted opacity-0 transition group-hover:opacity-100 hover:bg-surface-3 hover:text-brand sm:block"
           >
-            <Sparkles size={12} />
+            <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5" />
           </button>
         )}
       </div>

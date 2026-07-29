@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { X, Send, Sparkles, CheckSquare2, ChevronDown, Wrench, Check, ImagePlus } from 'lucide-react'
+import { X, Send, Sparkles, CheckSquare2, ChevronDown, Check, ImagePlus } from 'lucide-react'
 import { askAgentFn, listAgentsFn, getProjectAgentFn, setProjectAgentFn, getAgentHistoryFn } from '../server/agent'
 import { MemberAvatar } from './MemberAvatar'
 import ReactMarkdown from 'react-markdown'
@@ -74,7 +74,7 @@ function ToolGroup({ names, running }: { names: string[]; running: boolean }) {
   if (names.length === 1) {
     return (
       <div className="mb-1.5 flex max-w-md items-center gap-2 rounded-lg border border-border bg-surface-2/50 px-2.5 py-1.5 text-xs text-ink">
-        <Wrench size={12} className="shrink-0 text-muted" />
+        <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5 shrink-0" />
         {line(names[0], true)}
       </div>
     )
@@ -86,7 +86,7 @@ function ToolGroup({ names, running }: { names: string[]; running: boolean }) {
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-surface-3/40"
       >
-        <Wrench size={12} className="shrink-0 text-muted" />
+        <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate font-medium text-ink">
           {names.length} herramientas
         </span>
