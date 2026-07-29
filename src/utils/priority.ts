@@ -6,9 +6,11 @@
 // una franja de 4px o un punto de 6px.
 export type PriorityValue = 'urgent' | 'high' | 'medium' | 'low'
 
+// Rojo → ámbar → azul → gris. Rojo y naranja (urgente/alta) también se parecían de más a
+// tamaño de punto; el ámbar abre la distancia sin perder la lectura de "calor".
 export const PRIORITIES: Array<{ value: PriorityValue; label: string; color: string }> = [
-  { value: 'urgent', label: 'Urgente', color: '#ef4444' },
-  { value: 'high', label: 'Alta', color: '#f97316' },
+  { value: 'urgent', label: 'Urgente', color: '#dc2626' },
+  { value: 'high', label: 'Alta', color: '#f59e0b' },
   { value: 'medium', label: 'Media', color: '#3b82f6' },
   { value: 'low', label: 'Baja', color: '#94a3b8' },
 ]

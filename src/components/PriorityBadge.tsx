@@ -5,7 +5,7 @@ type Priority = string | null;
 // El punto de color del <select> nativo no se puede estilar: se aproxima con emoji.
 const EMOJI: Record<string, string> = {
   urgent: '🔴',
-  high: '🟠',
+  high: '🟡',
   medium: '🔵',
   low: '⚪',
 };

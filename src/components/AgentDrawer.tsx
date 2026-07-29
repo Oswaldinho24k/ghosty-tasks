@@ -3,6 +3,8 @@ import { motion } from 'motion/react'
 import { X, Send, Sparkles, CheckSquare2, ChevronDown, Check, ImagePlus } from 'lucide-react'
 import { askAgentFn, listAgentsFn, getProjectAgentFn, setProjectAgentFn, getAgentHistoryFn } from '../server/agent'
 import { MemberAvatar } from './MemberAvatar'
+import { taskRef } from '../utils/taskRef'
+import { useProject } from '../utils/projectContext'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize from 'rehype-sanitize'
@@ -134,6 +136,8 @@ export function AgentDrawer({
   // archivos pesados — por eso hay tope y no almacenamiento.
   const [files, setFiles] = useState<Array<{ name: string; mimeType: string; bytes: string; preview: string }>>([])
   const [dragging, setDragging] = useState(false)
+  // Autocompletado de tareas: se escribe "#" y se elige; el chat las trata como un chip.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -141,6 +145,35 @@ export function AgentDrawer({
 
   const colMap = new Map(columns.map(c => [c.id, c.name]))
   const current = agents.find((a) => a.handle === handle) ?? agents[0] ?? null
+  const { tasks, projectName } = useProject()
+
+  // Sugerencias para el "#": por referencia o por título, como las menciones de Teams.
+  const suggestions =
+    mentionQuery == null
+      ? []
+      : tasks
+          .filter((t) => {
+            const q = mentionQuery.toLowerCase()
+            return !q || t.title.toLowerCase().includes(q) || taskRef(projectName, t.id).toLowerCase().includes(q)
+          })
+          .slice(0, 6)
+
+  function onInputChange(v: string) {
+    setInput(v)
+    // El "#" abierto más cercano al cursor manda; un espacio lo cierra.
+    const m = v.match(/#([^\s#]*)$/)
+    setMentionQuery(m ? m[1] : null)
+  }
+
+  // Tareas mencionadas en lo que llevas escrito (para pintarlas como chips).
+  const referenced = tasks.filter((t) => input.includes(taskRef(projectName, t.id)))
+
+  function pickTask(id: number) {
+    const ref = taskRef(projectName, id)
+    setInput((prev) => prev.replace(/#[^\s#]*$/, `${ref} `))
+    setMentionQuery(null)
+    inputRef.current?.focus()
+  }
 
   // Register event handler with parent SSE
   const handleAgentRef = useRef<(ev: AgentEvent) => void>(() => {})
@@ -478,6 +511,37 @@ export function AgentDrawer({
             ))}
           </div>
         )}
+        {/* Lo que ya referenciaste: se ve como chip, no como texto suelto. */}
+        {referenced.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {referenced.map((t) => (
+              <span
+                key={t.id}
+                className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand"
+                title={t.title}
+              >
+                <span className="font-mono">{taskRef(projectName, t.id)}</span>
+                <span className="max-w-[9rem] truncate opacity-70">{t.title}</span>
+              </span>
+            ))}
+          </div>
+        )}
+        {suggestions.length > 0 && (
+          <div className="mb-2 overflow-hidden rounded-lg border border-border bg-surface-2 shadow-lg">
+            {suggestions.map((t) => (
+              <button
+                key={t.id}
+                onMouseDown={(e) => { e.preventDefault(); pickTask(t.id) }}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition hover:bg-surface-3"
+              >
+                <span className="shrink-0 rounded-md bg-brand/10 px-1.5 py-0.5 font-mono text-[10px] text-brand">
+                  {taskRef(projectName, t.id)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ink">{t.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2 focus-within:border-brand focus-within:ring-1 focus-within:ring-brand transition-colors">
           <label className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted transition hover:bg-surface-3 hover:text-ink" title="Adjuntar imagen">
             <ImagePlus size={15} />
@@ -492,7 +556,7 @@ export function AgentDrawer({
           <textarea
             ref={inputRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={(e) => onInputChange(e.target.value)}
             onKeyDown={onKeyDown}
             onPaste={(e) => {
               const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'))
@@ -513,7 +577,7 @@ export function AgentDrawer({
           </button>
         </div>
         <p className="mt-1.5 text-center text-[10px] text-muted">
-          Enter para enviar · arrastra o pega una imagen
+          Enter para enviar · # para referenciar una tarea · arrastra una imagen
         </p>
       </div>
     </motion.div>
