@@ -12,7 +12,7 @@ export type ChecklistItem = {
 };
 
 async function getProjectId(task_id: number): Promise<number> {
-  const rows = await dbq("SELECT project_id FROM gw_tasks WHERE id = ?", [task_id]);
+  const rows = await dbq("SELECT project_id FROM task_tasks WHERE id = ?", [task_id]);
   return num(rows[0]?.project_id);
 }
 
@@ -30,7 +30,7 @@ export const getChecklistFn = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     await ensureSchema();
     await getUserSub();
-    const rows = await dbq("SELECT * FROM gw_checklist_items WHERE task_id = ? ORDER BY position ASC", [data.task_id]);
+    const rows = await dbq("SELECT * FROM task_checklist_items WHERE task_id = ? ORDER BY position ASC", [data.task_id]);
     return rows.map((r) => ({
       id: num(r.id),
       task_id: data.task_id,
@@ -45,10 +45,10 @@ export const addChecklistItemFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await ensureSchema();
     await getUserSub();
-    const maxRows = await dbq("SELECT COALESCE(MAX(position), -1) as m FROM gw_checklist_items WHERE task_id = ?", [data.task_id]);
+    const maxRows = await dbq("SELECT COALESCE(MAX(position), -1) as m FROM task_checklist_items WHERE task_id = ?", [data.task_id]);
     const position = num(maxRows[0]?.m) + 1;
     const rows = await dbq(
-      "INSERT INTO gw_checklist_items (task_id, body, position) VALUES (?, ?, ?) RETURNING *",
+      "INSERT INTO task_checklist_items (task_id, body, position) VALUES (?, ?, ?) RETURNING *",
       [data.task_id, data.body, position]
     );
     const project_id = await getProjectId(data.task_id);
@@ -67,7 +67,7 @@ export const updateChecklistItemFn = createServerFn({ method: "POST" })
     if (data.done !== undefined) { sets.push("done = ?"); args.push(data.done ? 1 : 0); }
     if (!sets.length) return;
     args.push(data.id);
-    await dbq(`UPDATE gw_checklist_items SET ${sets.join(", ")} WHERE id = ?`, args);
+    await dbq(`UPDATE task_checklist_items SET ${sets.join(", ")} WHERE id = ?`, args);
     const project_id = await getProjectId(data.task_id);
     publish(ch.project(project_id), { t: "checklist:updated", task_id: data.task_id });
   });
@@ -77,7 +77,7 @@ export const deleteChecklistItemFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await ensureSchema();
     await getUserSub();
-    await dbq("DELETE FROM gw_checklist_items WHERE id = ?", [data.id]);
+    await dbq("DELETE FROM task_checklist_items WHERE id = ?", [data.id]);
     const project_id = await getProjectId(data.task_id);
     publish(ch.project(project_id), { t: "checklist:updated", task_id: data.task_id });
   });

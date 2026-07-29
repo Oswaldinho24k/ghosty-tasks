@@ -6,9 +6,19 @@ export type Member = { sub: string; name: string; avatar: string; handle: string
 
 export type ProjectContextValue = {
   projectId: number
+  projectName: string
+  /** Abre el chat del agente con la referencia de una tarea ya escrita. */
+  onAskAgent: (ref: string) => void
   columns: Column[]
   tasks: Task[]
+  /** Equipo completo del workspace: sirve para PINTAR a cualquiera (autores, asignados). */
   members: Member[]
+  /** Los del tablero: es lo que se ofrece para filtrar y asignar desde la interfaz. */
+  projectMembers: Member[]
+  /** Subs conectados ahora mismo (para el punto verde). */
+  online: string[]
+  /** ¿Esta persona participa en el tablero? Si no, la UI va en solo lectura. */
+  canEdit: boolean
   taskLabels: Record<number, Label[]>
   onTaskClick: (t: Task) => void
   onColumnsChange: (cols: Column[]) => void

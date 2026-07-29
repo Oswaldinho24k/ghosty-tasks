@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, notFound, redirect } from '@tanstack/react-router'
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { Settings, Menu, Plus, Sparkles } from 'lucide-react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { Settings, Menu, Plus } from 'lucide-react'
 import { getProjectShellFn, listProjectsFn } from '../server/projects'
 import type { Task, Column, Project } from '../server/projects'
 import { getAllTaskLabelsFn } from '../server/labels'
@@ -17,6 +17,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useLiveStream } from '../hooks/useLiveStream'
 import type { WwEvent } from '../server/bus.server'
 import { ProjectContext } from '../utils/projectContext'
+import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
 
 export const Route = createFileRoute('/p/$slug')({
   loader: async ({ params }) => {
@@ -39,7 +40,7 @@ function ProjectShell() {
 
   const [projects, setProjects] = useState(initialProjects)
   const [project, setProject] = useState(initial.project)
-  const [members, setMembers] = useState(initial.members)
+  const [projectMembers, setMembers] = useState(initial.members)
   const [columns, setColumns] = useState(initial.columns)
   const [tasks, setTasks] = useState(initial.tasks)
   const [taskLabels, setTaskLabels] = useState<Record<number, Label[]>>({})
@@ -50,11 +51,36 @@ function ProjectShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [createTaskOpen, setCreateTaskOpen] = useState(false)
   const [agentOpen, setAgentOpen] = useState(false)
+  const [agentSeed, setAgentSeed] = useState<string | null>(null)
+  // El panel de detalle se recarga cuando llega un evento de SU tarea: el agente puede
+  // añadirle checklist o comentarios mientras lo tienes abierto, y antes se quedaba
+  // congelado hasta cerrarlo y volverlo a abrir.
+  const [detailRefresh, setDetailRefresh] = useState(0)
+  // Quién está conectado ahora mismo. El bus ya lo emitía y nadie lo escuchaba.
+  const [online, setOnline] = useState<string[]>([])
+  const selectedTaskRef = useRef<number | null>(null)
+  selectedTaskRef.current = selectedTaskId
   const agentEventCallback = useRef<((ev: WwEvent) => void) | null>(null)
 
   const currentView = typeof window !== 'undefined'
     ? window.location.pathname.split('/').pop() ?? 'board'
     : 'board'
+
+  // Para PINTAR a alguien (avatar del asignado, autor de un comentario) sirve todo el
+  // equipo, no solo los miembros del proyecto: si no, una tarea asignada a alguien que no
+  // está en el tablero salía sin cara.
+  const team = useWorkspaceMembers()
+  const members = useMemo(() => {
+    type M = (typeof projectMembers)[number]
+    const bySub = new Map<string, M>(
+      team.map((t) => [t.sub, { sub: t.sub, name: t.name, avatar: t.avatar, handle: t.handle, role: 'member' } as M])
+    )
+    for (const m of projectMembers) bySub.set(m.sub, { ...bySub.get(m.sub), ...m })
+    return [...bySub.values()]
+  }, [team, projectMembers])
+
+  // Ver es de todo el workspace; participar, de los miembros del tablero.
+  const canEdit = initial.canEdit ?? true
 
   const currentUser = members.find((m) => m.sub === initial.currentSub)
 
@@ -87,8 +113,28 @@ function ProjectShell() {
     } catch {}
   }, [slug])
 
+  // ¿Este evento habla de la tarea que tengo abierta?
+  const touchesOpenTask = (ev: WwEvent): boolean => {
+    const id = selectedTaskRef.current
+    if (id == null) return false
+    if (ev.t === 'checklist:updated' || ev.t === 'comment:created' || ev.t === 'comment:updated' || ev.t === 'comment:deleted') {
+      return ev.task_id === id
+    }
+    if (ev.t === 'task:updated' || ev.t === 'task:moved') return ev.id === id
+    return false
+  }
+
   useLiveStream({
     onEvent: (ev: WwEvent) => {
+      // Si el evento habla de la tarea que tengo abierta, recargar su panel: el agente
+      // puede añadirle checklist o comentarios mientras la miras.
+      if (touchesOpenTask(ev)) setDetailRefresh((n) => n + 1)
+      if (ev.t === 'presence:init') setOnline(ev.online)
+      if (ev.t === 'presence') {
+        setOnline((prev) =>
+          ev.status === 'online' ? [...new Set([...prev, ev.sub])] : prev.filter((s) => s !== ev.sub)
+        )
+      }
       if (ev.t === 'task:created') {
         if (ev.task.project_id === initial.project.id) {
           setTasks((prev) => {
@@ -141,7 +187,7 @@ function ProjectShell() {
           const map = new Map(prev.map((c) => [c.id, c]))
           return ev.ordered_ids.map((id, i) => ({ ...map.get(id)!, position: i })).filter(Boolean)
         })
-      } else if (ev.t === 'agent:chunk' || ev.t === 'agent:done' || ev.t === 'agent:turn') {
+      } else if (ev.t === 'agent:chunk' || ev.t === 'agent:tool' || ev.t === 'agent:done') {
         agentEventCallback.current?.(ev)
       }
     },
@@ -198,7 +244,11 @@ function ProjectShell() {
 
       <main className="flex flex-1 flex-col overflow-hidden">
         {/* Project header */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        {/* z-30: por encima de la capa que cierra el detalle al hacer clic fuera. Si no,
+            abrir una tarea bloqueaba "Nueva tarea" y el botón del agente. */}
+        {/* data-keep-detail: tocar la barra no cierra el detalle. Abrir el chat teniendo
+            una tarea abierta debe hacer las dos cosas a la vez, no cerrar una. */}
+        <div data-keep-detail className="relative z-30 flex items-center justify-between border-b border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-3">
             {/* Hamburger (mobile only) */}
             <button
@@ -215,25 +265,18 @@ function ProjectShell() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="hidden sm:flex -space-x-1">
-              {members.slice(0, 5).map((m) => (
-                <img
-                  key={m.sub}
-                  src={m.avatar || `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(m.name)}`}
-                  alt={m.name}
-                  title={m.name}
-                  className="h-7 w-7 rounded-full border-2 border-surface object-cover"
-                />
-              ))}
-            </div>
-            <button
-              onClick={() => setCreateTaskOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-brand-fg transition hover:brightness-110"
-              title="Nueva tarea"
-            >
-              <Plus size={13} />
-              <span className="hidden sm:inline">Nueva tarea</span>
-            </button>
+            {/* Sin fila de caras aquí: el filtro por persona, justo debajo, ya muestra a
+                los mismos — dos veces lo mismo en la misma pantalla. */}
+            {canEdit && (
+              <button
+                onClick={() => setCreateTaskOpen(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-brand-fg transition hover:brightness-110"
+                title="Nueva tarea"
+              >
+                <Plus size={13} />
+                <span className="hidden sm:inline">Nueva tarea</span>
+              </button>
+            )}
             <button
               onClick={() => setAgentOpen((v) => !v)}
               className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
@@ -243,11 +286,12 @@ function ProjectShell() {
               }`}
               title="Ghosty AI"
             >
-              <Sparkles size={13} />
+              <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Ghosty</span>
             </button>
             <button
-              onClick={() => setSettingsOpen(true)}
+              data-settings-toggle
+              onClick={() => setSettingsOpen((v) => !v)}
               className="rounded-lg p-1.5 text-muted hover:bg-surface-3 hover:text-ink transition-colors"
               title="Ajustes del proyecto"
             >
@@ -256,13 +300,30 @@ function ProjectShell() {
           </div>
         </div>
 
+        {/* Solo lectura: decirlo en vez de dejar botones que fallan al tocarlos. */}
+        {!canEdit && (
+          <p className="border-b border-border bg-surface-2 px-4 py-1.5 text-center text-[11px] text-muted">
+            Solo lectura — no participas en este tablero. Te suman asignándote una tarea.
+          </p>
+        )}
+
         {/* View content via React Context */}
         <div className="flex-1 overflow-hidden">
           <ProjectContext.Provider value={{
             projectId: initial.project.id,
+            projectName: project.name,
+            onAskAgent: (ref: string) => {
+              // Abrir el chat ya hablando de ESA tarjeta: sin esto había que copiar el id
+              // a mano, que es justo lo que la referencia visible vino a evitar.
+              setAgentSeed(`${ref} `)
+              setAgentOpen(true)
+            },
             columns,
             tasks,
             members,
+            projectMembers,
+            online,
+            canEdit,
             taskLabels,
             onTaskClick: (t: Task) => setSelectedTaskId(t.id),
             onColumnsChange: setColumns,
@@ -283,19 +344,29 @@ function ProjectShell() {
             key={selectedTaskId}
             taskId={selectedTaskId}
             projectId={initial.project.id}
-            members={members}
+            members={projectMembers}
             onClose={() => setSelectedTaskId(null)}
             onDeleted={(id) => {
               setTasks((prev) => prev.filter((t) => t.id !== id))
               setTaskLabels((prev) => { const n = { ...prev }; delete n[id]; return n })
             }}
             onLabelsChange={(taskId, labels) => setTaskLabels((prev) => ({ ...prev, [taskId]: labels }))}
+            agentOpen={agentOpen}
+            settingsOpen={settingsOpen}
+            refreshKey={detailRefresh}
+            projectName={project.name}
+            onTaskChanged={(id, patch) =>
+              setTasks((prev) => prev.map((t) => (t.id === id ? ({ ...t, ...patch } as Task) : t)))
+            }
           />
         )}
         {settingsOpen && (
           <ProjectSettingsPanel
             project={project}
-            members={members}
+            // Los del TABLERO, no el equipo entero: la lista fusionada existe para pintar
+            // caras (un asignado que no está en el proyecto igual necesita avatar), y
+            // usarla aquí hacía que Ajustes anunciara a todo el workspace como miembro.
+            members={projectMembers}
             isOwner={initial.isOwner}
             currentSub={initial.currentSub}
             onClose={() => setSettingsOpen(false)}
@@ -327,6 +398,7 @@ function ProjectShell() {
 
       {/* Create task modal (global) */}
       <CreateTaskModal
+        members={projectMembers}
         open={createTaskOpen}
         onClose={() => setCreateTaskOpen(false)}
         projectId={initial.project.id}
@@ -341,6 +413,10 @@ function ProjectShell() {
       <AnimatePresence>
         {agentOpen && (
           <AgentDrawer
+            tasks={tasks}
+            projectName={project.name}
+            seed={agentSeed}
+            onSeedUsed={() => setAgentSeed(null)}
             onClose={() => setAgentOpen(false)}
             projectId={initial.project.id}
             columns={columns}

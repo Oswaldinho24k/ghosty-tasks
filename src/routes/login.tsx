@@ -18,11 +18,11 @@ export function parseLoginSearch(s: Record<string, unknown>): LoginSearch {
 //   1. Sin params → 302 al IdP con return=<path>?attempted=true
 //   2. Vuelta con ?payload&sig → completa sesión y 302 a "/"
 //   3. Vuelta con ?attempted sin payload → muestra LoginCard (fallback manual, anti-loop)
-export async function runLoginLoader(search: LoginSearch, inviteToken?: string) {
+export async function runLoginLoader(search: LoginSearch) {
   if (search.payload) {
     let error: string | null = null
     try {
-      await completeGhostyLogin({ data: { payload: search.payload, sig: search.sig ?? '', inviteToken } })
+      await completeGhostyLogin({ data: { payload: search.payload, sig: search.sig ?? '' } })
     } catch (e) {
       error = (e as Error)?.message || 'No se pudo iniciar sesión'
     }
@@ -35,8 +35,8 @@ export async function runLoginLoader(search: LoginSearch, inviteToken?: string) 
   if (search.attempted) {
     return { error: null as string | null }
   }
-  const { url } = await startGhostyLogin({ data: { inviteToken } })
-  const retPath = `${inviteToken ? `/join/${inviteToken}` : '/login'}?attempted=true`
+  const { url } = await startGhostyLogin({ data: {} })
+  const retPath = '/login?attempted=true'
   const sep = url.includes('?') ? '&' : '?'
   throw redirect({ href: `${url}${sep}return=${encodeURIComponent(retPath)}` })
 }

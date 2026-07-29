@@ -1,15 +1,53 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { X, Send, Sparkles, CheckSquare2, Square } from 'lucide-react'
-import { askAgentFn, stopTurnFn } from '../server/agent.server'
+import { X, Send, CheckSquare2, ChevronDown, Check, ImagePlus } from 'lucide-react'
+import { askAgentFn, listAgentsFn, getProjectAgentFn, setProjectAgentFn, getAgentHistoryFn } from '../server/agent'
+import { MemberAvatar } from './MemberAvatar'
+import { taskRef } from '../utils/taskRef'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeSanitize from 'rehype-sanitize'
 import { registerModalEsc } from '../utils/modal-esc'
 import type { WwEvent } from '../server/bus.server'
-import type { Column } from '../server/projects'
+import type { Column, Task } from '../server/projects'
 
 type AgentEvent =
   | Extract<WwEvent, { t: 'agent:chunk' }>
+  | Extract<WwEvent, { t: 'agent:tool' }>
   | Extract<WwEvent, { t: 'agent:done' }>
   | Extract<WwEvent, { t: 'agent:turn' }>
+
+type Agent = { handle: string; name: string; avatar: string }
+
+// Lo último que se habló con cada agente en cada tablero. Sin esto, abrir el chat volvía a
+// pedir el historial al servidor y te dejaba arriba del todo mientras cargaba — con la
+// conversación creciendo, eso es un salto molesto cada vez.
+const historyCache = new Map<string, Msg[]>()
+// Qué agente quedó elegido en cada tablero. Va aparte del historial porque el historial
+// se busca POR agente: mientras el handle no se resolvía (un viaje al servidor), ni
+// siquiera se podía consultar la caché, y ése era el brinco al abrir el chat.
+const handleCache = new Map<number, string>()
+
+// Nombre legible de cada herramienta: el usuario debe poder mirar el drawer y saber qué
+// está tocando el agente en SU tablero.
+// El runtime las anuncia como `gs_connector:list_board` (van por el canal de los
+// conectores), así que hay que quitarle el prefijo antes de buscar la etiqueta.
+function toolLabel(raw: string): string {
+  const name = raw.replace(/^gs[_ ]connector:/, '').replace(/ /g, '_')
+  return TOOL_LABELS[name] ?? name.replace(/_/g, ' ')
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  list_board: 'Miró el tablero',
+  find_tasks: 'Buscó tareas',
+  create_task: 'Creó una tarea',
+  move_task: 'Movió una tarea',
+  update_task: 'Actualizó una tarea',
+  set_labels: 'Cambió etiquetas',
+  comment_task: 'Comentó',
+  add_checklist_item: 'Añadió al checklist',
+  delete_task: 'Borró una tarea',
+}
 
 type Msg = {
   id: string
@@ -17,6 +55,7 @@ type Msg = {
   content: string
   streaming: boolean
   created_tasks: Array<{ id: number; title: string; column_id: number }>
+  tools?: Array<{ name: string; detail?: string }>
 }
 
 // Frases rotativas para el placeholder — cambian cada hora por proyecto
@@ -45,23 +84,113 @@ function stripJsonBlock(text: string): string {
     .trim()
 }
 
-function formatElapsed(ms: number): string {
-  const secs = Math.max(0, Math.round(ms / 1000))
-  return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`
+// Mismo bloque que en Ghosty Teams: una sola herramienta va en una línea (el header y
+// la fila dirían lo mismo), varias se agrupan en una tarjeta colapsable con contador.
+// Abierto por defecto: lo que se quiere es ver qué está tocando en el tablero.
+function ToolGroup({ names, running }: { names: Array<{ name: string; detail?: string }>; running: boolean }) {
+  const [open, setOpen] = useState(true)
+  if (!names.length) return null
+
+  // Seis veces "Actualizó una tarea" no dice nada. Se agrupan las iguales con su contador
+  // y, cuando se sabe, con la tarea a la que le tocaron.
+  const grouped: Array<{ label: string; detail?: string; n: number }> = []
+  for (const t of names) {
+    const label = toolLabel(t.name)
+    const last = grouped[grouped.length - 1]
+    if (last && last.label === label && last.detail === t.detail) last.n++
+    else grouped.push({ label, detail: t.detail, n: 1 })
+  }
+
+  const line = (g: { label: string; detail?: string; n: number }, last: boolean) => (
+    <>
+      {running && last ? (
+        <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-muted/40 border-t-brand" />
+      ) : (
+        <Check size={13} className="shrink-0 text-emerald-500" />
+      )}
+      <span className="truncate">{g.label}</span>
+      {g.detail && <span className="truncate font-mono text-[10px] text-muted/70">· {g.detail}</span>}
+      {g.n > 1 && <span className="shrink-0 text-[10px] text-muted/70">×{g.n}</span>}
+    </>
+  )
+
+  if (grouped.length === 1) {
+    return (
+      <div className="mb-1.5 flex max-w-md items-center gap-2 rounded-lg border border-border bg-surface-2/50 px-2.5 py-1.5 text-xs text-ink">
+        <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5 shrink-0" />
+        {line(grouped[0], true)}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-1.5 max-w-md overflow-hidden rounded-lg border border-border bg-surface-2/50">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-surface-3/40"
+      >
+        <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate font-medium text-ink">
+          {names.length} herramientas
+        </span>
+        {running ? (
+          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-muted/40 border-t-brand" />
+        ) : (
+          <Check size={12} className="shrink-0 text-emerald-500" />
+        )}
+        <ChevronDown size={14} className={`ml-auto shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="border-t border-border/60 px-2.5 py-1.5">
+          {grouped.map((g, i) => (
+            <div key={`${g.label}-${g.detail ?? ''}-${i}`} className="flex items-center gap-2 py-0.5 text-xs text-muted">
+              {line(g, i === grouped.length - 1)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function AgentDrawer({
   onClose,
   projectId,
   columns,
+  // Por PROPS, no por contexto: este drawer se monta FUERA del ProjectContext.Provider
+  // (que solo envuelve al <Outlet/>), así que un useProject() aquí revienta la pantalla
+  // entera con "useProject must be inside ProjectShell". Le pasó al agregar el "#".
+  tasks,
+  projectName,
+  seed,
+  onSeedUsed,
   onRegisterEventCallback,
 }: {
   onClose: () => void
   projectId: number
   columns: Column[]
+  tasks: Task[]
+  projectName: string
+  /** Texto con el que abrir el input (p. ej. la referencia de una tarea). */
+  seed?: string | null
+  onSeedUsed?: () => void
   onRegisterEventCallback: (cb: ((ev: AgentEvent) => void) | null) => void
 }) {
   const [messages, setMessages] = useState<Msg[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [handle, setHandle] = useState<string | null>(() => handleCache.get(projectId) ?? null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  // Adjuntos del PRÓXIMO mensaje. Van inline en base64: son capturas y mockups, no
+  // archivos pesados — por eso hay tope y no almacenamiento.
+  const [files, setFiles] = useState<Array<{ name: string; mimeType: string; bytes: string; preview: string }>>([])
+  const [dragging, setDragging] = useState(false)
+  // Autocompletado de tareas: se escribe "#" y se elige; el chat las trata como un chip.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  // Hasta saber si hay conversación previa no se pinta nada: mostrar la bienvenida y
+  // reemplazarla un segundo después por el historial es un parpadeo feo.
+  const [historyReady, setHistoryReady] = useState(() =>
+    historyCache.has(`${projectId}:${handleCache.get(projectId) ?? ''}`)
+  )
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   // Turn tracking for stop button + elapsed timer
@@ -72,6 +201,60 @@ export function AgentDrawer({
   const placeholder = agentHint(projectId)
 
   const colMap = new Map(columns.map(c => [c.id, c.name]))
+  const current = agents.find((a) => a.handle === handle) ?? agents[0] ?? null
+  // Sugerencias para el "#": por referencia o por título, como las menciones de Teams.
+  const suggestions =
+    mentionQuery == null
+      ? []
+      : tasks
+          .filter((t) => {
+            const q = mentionQuery.toLowerCase()
+            return !q || t.title.toLowerCase().includes(q) || taskRef(projectName, t.id).toLowerCase().includes(q)
+          })
+          .slice(0, 6)
+
+  // Crece con lo que escribes hasta un tope y luego hace scroll — como Slack o ChatGPT.
+  // Un textarea no lo hace solo: hay que medir su contenido en cada cambio.
+  const MAX_INPUT_PX = 160
+  function autoGrow() {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_PX)}px`
+    el.style.overflowY = el.scrollHeight > MAX_INPUT_PX ? 'auto' : 'hidden'
+  }
+
+  useEffect(autoGrow, [input])
+
+  function onInputChange(v: string) {
+    setInput(v)
+    // El "#" abierto más cercano al cursor manda; un espacio lo cierra.
+    const m = v.match(/#([^\s#]*)$/)
+    setMentionQuery(m ? m[1] : null)
+  }
+
+  // Tareas mencionadas en lo que llevas escrito (para pintarlas como chips).
+  const referenced = tasks.filter((t) => input.includes(taskRef(projectName, t.id)))
+
+  /** Quitar una referencia = borrarla del texto, que es donde vive de verdad. */
+  function unrefTask(id: number) {
+    const ref = taskRef(projectName, id)
+    setInput((prev) =>
+      prev
+        .split(ref)
+        .join('')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trimStart()
+    )
+    inputRef.current?.focus()
+  }
+
+  function pickTask(id: number) {
+    const ref = taskRef(projectName, id)
+    setInput((prev) => prev.replace(/#[^\s#]*$/, `${ref} `))
+    setMentionQuery(null)
+    inputRef.current?.focus()
+  }
 
   // Tick every second while a turn is running
   useEffect(() => {
@@ -94,6 +277,16 @@ export function AgentDrawer({
       setMessages(prev =>
         prev.map(m => m.id === ev.turnId ? { ...m, content: m.content + ev.value } : m)
       )
+    } else if (ev.t === 'agent:tool') {
+      // Sin turnId (lo emite el endpoint de herramientas, que no lo conoce) se cuelga del
+      // turno en vuelo: es el único que puede estar usando herramientas.
+      setMessages(prev => {
+        const targetId = ev.turnId || [...prev].reverse().find(m => m.streaming)?.id
+        if (!targetId) return prev
+        return prev.map(m =>
+          m.id === targetId ? { ...m, tools: [...(m.tools ?? []), { name: ev.name, detail: ev.detail }] } : m
+        )
+      })
     } else if (ev.t === 'agent:done') {
       setMessages(prev =>
         prev.map(m =>
@@ -103,7 +296,9 @@ export function AgentDrawer({
         )
       )
       setBusy(false)
-      setTurnInfo(null)
+      // Devolver el foco al terminar el turno: seguir la conversación no debería costar
+      // un clic, igual que en Ghosty Teams.
+      setTimeout(() => inputRef.current?.focus(), 30)
     }
   }, [])
 
@@ -112,8 +307,13 @@ export function AgentDrawer({
     return () => onRegisterEventCallback(null)
   }, [])
 
+  const firstScroll = useRef(true)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!messages.length) return
+    // La primera vez se salta al final (una conversación larga no debe "viajar" hasta
+    // abajo a la vista del usuario); a partir de ahí, suave.
+    bottomRef.current?.scrollIntoView({ behavior: firstScroll.current ? 'auto' : 'smooth' })
+    firstScroll.current = false
   }, [messages])
 
   useEffect(() => {
@@ -124,9 +324,101 @@ export function AgentDrawer({
     setTimeout(() => inputRef.current?.focus(), 100)
   }, [])
 
+  // Llegaste desde una tarjeta: el input arranca con su referencia y el cursor al final.
+  useEffect(() => {
+    if (!seed) return
+    setInput((prev) => (prev.includes(seed.trim()) ? prev : prev ? `${prev} ${seed}` : seed))
+    setTimeout(() => inputRef.current?.focus(), 40)
+    onSeedUsed?.()
+  }, [seed])
+
+  // Los agentes del EQUIPO (los que activaste en Ghosty Teams) y cuál quedó elegido
+  // para este tablero. La elección vive en la DB, así que es la misma en el teléfono.
+  useEffect(() => {
+    let alive = true
+    Promise.all([listAgentsFn(), getProjectAgentFn({ data: { projectId } })])
+      .then(([list, chosen]) => {
+        if (!alive) return
+        setAgents(list)
+        const h = chosen.handle ?? list[0]?.handle ?? null
+        if (h) handleCache.set(projectId, h)
+        setHandle(h)
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [projectId])
+
+  // Historial: antes la conversación se perdía al recargar.
+  useEffect(() => {
+    if (!handle) return
+    const key = `${projectId}:${handle}`
+    // Lo conocido primero (instantáneo, sin salto), y el servidor detrás.
+    const cached = historyCache.get(key)
+    if (cached) {
+      setMessages(cached)
+      setHistoryReady(true)
+    }
+
+    let alive = true
+    getAgentHistoryFn({ data: { projectId, handle } })
+      .then((rows) => {
+        if (!alive || !rows.length) return
+        const msgs: Msg[] = rows.map((r, i) => ({
+          id: `h-${i}`,
+          role: r.role,
+          content: r.body,
+          streaming: false,
+          created_tasks: [],
+        }))
+        historyCache.set(key, msgs)
+        setMessages(msgs)
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setHistoryReady(true) })
+    return () => { alive = false }
+  }, [projectId, handle])
+
+  // Guardar lo que se va diciendo, para que reabrir el chat no parpadee.
+  useEffect(() => {
+    if (!handle || !messages.length) return
+    historyCache.set(`${projectId}:${handle}`, messages)
+  }, [messages, projectId, handle])
+
+  async function pickAgent(h: string) {
+    handleCache.set(projectId, h)
+    setHandle(h)
+    setPickerOpen(false)
+    setMessages([])
+    await setProjectAgentFn({ data: { projectId, handle: h } }).catch(() => {})
+  }
+
+  // Ya no viaja dentro del turno (va al storage del workspace), así que el tope es el
+  // del storage, no el del contexto.
+  const MAX_BYTES = 20_000_000
+
+  async function addFiles(list: FileList | File[]) {
+    const incoming = Array.from(list).filter((f) => f.type.startsWith('image/'))
+    for (const f of incoming) {
+      if (f.size > MAX_BYTES) {
+        // Mejor decirlo que mandar 8MB en base64 por un server-fn.
+        setMessages((prev) => [
+          ...prev,
+          { id: `e-${Date.now()}`, role: 'agent', content: `"${f.name}" pesa demasiado (máx. 20 MB).`, streaming: false, created_tasks: [] },
+        ])
+        continue
+      }
+      const buf = await f.arrayBuffer()
+      let bin = ''
+      const bytesArr = new Uint8Array(buf)
+      for (let i = 0; i < bytesArr.length; i++) bin += String.fromCharCode(bytesArr[i])
+      const b64 = btoa(bin)
+      setFiles((prev) => [...prev, { name: f.name, mimeType: f.type, bytes: b64, preview: `data:${f.type};base64,${b64}` }])
+    }
+  }
+
   async function send() {
     const text = input.trim()
-    if (!text || busy) return
+    if ((!text && !files.length) || busy) return
 
     const turnId = typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
@@ -138,10 +430,14 @@ export function AgentDrawer({
       { id: turnId, role: 'agent', content: '', streaming: true, created_tasks: [] },
     ])
     setInput('')
+    // El foco se queda donde estabas escribiendo (enviar no lo pierde).
+    inputRef.current?.focus()
+    const attachments = files.map((f) => ({ name: f.name, mimeType: f.mimeType, bytes: f.bytes }))
+    setFiles([])
     setBusy(true)
 
     try {
-      await askAgentFn({ data: { projectId, message: text, turnId } })
+      await askAgentFn({ data: { projectId, message: text, turnId, handle: handle ?? undefined, attachments } })
     } catch {
       setMessages(prev =>
         prev.map(m =>
@@ -173,22 +469,65 @@ export function AgentDrawer({
 
   return (
     <motion.div
+      data-agent-drawer
       initial={{ x: '100%', opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: '100%', opacity: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-xl"
+      onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false) }}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragging(false)
+        if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files)
+      }}
+      // Debajo de la barra superior, igual que el detalle: taparla deja sin salida (no se
+      // puede crear una tarea ni cambiar de vista sin cerrar el chat).
+      className={`fixed bottom-0 right-0 top-14 z-40 flex w-full max-w-sm flex-col border-l border-t bg-surface shadow-xl transition-colors ${
+        dragging ? 'border-brand ring-2 ring-brand/40' : 'border-border'
+      }`}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10">
-            <Sparkles size={14} className="text-brand" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-ink">Ghosty</p>
-            <p className="text-[10px] text-muted">Asistente AI del proyecto</p>
-          </div>
+        {/* Con quién hablas. Son los agentes del equipo, no uno propio de Tasks: si hay
+            varios, se elige aquí y la elección se recuerda por tablero. */}
+        <div className="relative min-w-0">
+          <button
+            onClick={() => agents.length > 1 && setPickerOpen((v) => !v)}
+            className={`flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 ${agents.length > 1 ? 'transition-colors hover:bg-surface-3' : 'cursor-default'}`}
+          >
+            {current?.avatar ? (
+              <MemberAvatar name={current.name} avatar={current.avatar} size={28} />
+            ) : (
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10">
+                <img src="/ghosty.svg" alt="" className="h-4 w-4" />
+              </div>
+            )}
+            <div className="min-w-0 text-left">
+              <p className="truncate text-sm font-semibold text-ink">{current?.name ?? 'Ghosty'}</p>
+              <p className="text-[10px] text-muted">
+                {current ? `@${current.handle} · del equipo` : 'Asistente del tablero'}
+              </p>
+            </div>
+            {agents.length > 1 && <ChevronDown size={13} className="shrink-0 text-muted" />}
+          </button>
+          {pickerOpen && (
+            <div className="absolute left-0 z-20 mt-1 w-56 rounded-lg border border-border bg-surface-2 py-1 shadow-xl">
+              {agents.map((a) => (
+                <button
+                  key={a.handle}
+                  onClick={() => pickAgent(a.handle)}
+                  className="flex w-full items-center gap-2 px-2 py-1.5 text-xs text-ink transition-colors hover:bg-surface-3"
+                >
+                  <MemberAvatar name={a.name} avatar={a.avatar} size={22} />
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block truncate">{a.name}</span>
+                    <span className="block truncate text-[10px] text-muted">@{a.handle}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <button
           onClick={onClose}
@@ -200,10 +539,25 @@ export function AgentDrawer({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && (
+        {!historyReady && messages.length === 0 && (
+          // Esqueletos en vez de vacío: el hueco en blanco seguido del historial de golpe
+          // es justo el brinco. Alternan lado como una conversación real.
+          <div className="space-y-3" aria-hidden>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className={`flex ${i % 2 ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className="h-9 animate-pulse rounded-2xl bg-surface-2"
+                  style={{ width: `${i % 2 ? 42 : 62}%`, animationDelay: `${i * 90}ms` }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {historyReady && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-12">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10">
-              <Sparkles size={22} className="text-brand" />
+              <img src="/ghosty.svg" alt="" className="h-6 w-6" />
             </div>
             <div>
               <p className="text-sm font-semibold text-ink mb-1">Hola, soy Ghosty</p>
@@ -236,10 +590,18 @@ export function AgentDrawer({
           >
             {msg.role === 'agent' && (
               <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-brand/10">
-                <Sparkles size={11} className="text-brand" />
+                {current?.avatar ? (
+                  <MemberAvatar name={current.name} avatar={current.avatar} size={18} />
+                ) : (
+                  <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5" />
+                )}
               </div>
             )}
             <div className={`max-w-[85%] ${msg.role === 'user' ? 'order-first' : ''}`}>
+              {/* Lo que fue tocando en el tablero, mientras lo hacía. */}
+              {msg.role === 'agent' && msg.tools?.length ? (
+                <ToolGroup names={msg.tools} running={msg.streaming} />
+              ) : null}
               <div
                 className={`rounded-2xl px-3 py-2 text-sm leading-relaxed ${
                   msg.role === 'user'
@@ -247,12 +609,30 @@ export function AgentDrawer({
                     : 'bg-surface-2 text-ink rounded-bl-sm'
                 }`}
               >
-                {msg.role === 'agent'
-                  ? (stripJsonBlock(msg.content) || (msg.streaming ? '' : '…'))
-                  : msg.content}
-                {msg.streaming && (
-                  <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse rounded-full bg-current opacity-70" />
+                {msg.role === 'agent' && msg.streaming && !stripJsonBlock(msg.content).trim() ? (
+                  // Tres puntitos mientras no llega nada: un cursor parpadeando sobre una
+                  // burbuja vacía parece que se colgó.
+                  <span className="flex items-center gap-1.5 py-1">
+                    {[0, 1, 2].map((i) => (
+                      <span
+                        key={i}
+                        className="gt-thinking-dot"
+                        style={{ animationDelay: `${i * 160}ms` }}
+                      />
+                    ))}
+                  </span>
+                ) : msg.role === 'agent' ? (
+                  // El agente responde en markdown (negritas, listas, código): en crudo
+                  // se leían los asteriscos.
+                  <div className="gt-md">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+                      {stripJsonBlock(msg.content) || (msg.streaming ? '' : '…')}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  msg.content
                 )}
+
               </div>
 
               {/* Turn controls: elapsed + stop button */}
@@ -299,28 +679,101 @@ export function AgentDrawer({
 
       {/* Input */}
       <div className="border-t border-border p-3">
-        <div className="flex items-end gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2 focus-within:border-brand focus-within:ring-1 focus-within:ring-brand transition-colors">
+        {files.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {files.map((f, i) => (
+              <div key={`${f.name}-${i}`} className="group relative">
+                <img src={f.preview} alt={f.name} className="h-14 w-14 rounded-lg border border-border object-cover" />
+                <button
+                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                  className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-border bg-surface text-muted transition hover:text-ink"
+                  aria-label={`Quitar ${f.name}`}
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {suggestions.length > 0 && (
+          <div className="mb-2 overflow-hidden rounded-lg border border-border bg-surface-2 shadow-lg">
+            {suggestions.map((t) => (
+              <button
+                key={t.id}
+                onMouseDown={(e) => { e.preventDefault(); pickTask(t.id) }}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition hover:bg-surface-3"
+              >
+                <span className="shrink-0 rounded-md bg-brand/10 px-1.5 py-0.5 font-mono text-[10px] text-brand">
+                  {taskRef(projectName, t.id)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ink">{t.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="rounded-xl border border-border bg-surface-2 px-3 py-2 focus-within:border-brand focus-within:ring-1 focus-within:ring-brand transition-colors">
+          {/* Las referencias van DENTRO del campo, como el tageo de Teams, y cada una se
+              quita con su ✕. Antes vivían en una tira aparte encima del input: se leían
+              como otra cosa y no había forma de deshacerlas salvo borrando texto a mano.
+              El texto del textarea sigue siendo la fuente de verdad; el chip sólo lo pinta. */}
+          {referenced.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap gap-1.5">
+              {referenced.map((t) => (
+                <span
+                  key={t.id}
+                  className="group inline-flex max-w-full items-center gap-1 rounded-md bg-brand/10 py-0.5 pl-1.5 pr-1 text-[10px] text-brand"
+                  title={t.title}
+                >
+                  <span className="font-mono">{taskRef(projectName, t.id)}</span>
+                  <span className="max-w-[9rem] truncate opacity-70">{t.title}</span>
+                  <button
+                    onMouseDown={(e) => { e.preventDefault(); unrefTask(t.id) }}
+                    className="rounded p-0.5 text-brand/60 transition hover:bg-brand/20 hover:text-brand"
+                    aria-label={`Quitar ${taskRef(projectName, t.id)}`}
+                  >
+                    <X size={9} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+          <label className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted transition hover:bg-surface-3 hover:text-ink" title="Adjuntar imagen">
+            <ImagePlus size={15} />
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }}
+            />
+          </label>
           <textarea
             ref={inputRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={(e) => onInputChange(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={placeholder}
+            onPaste={(e) => {
+              const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'))
+              if (imgs.length) { e.preventDefault(); addFiles(imgs) }
+            }}
+            placeholder="Escribe un mensaje…"
             rows={1}
             disabled={busy}
             className="flex-1 resize-none bg-transparent text-sm text-ink outline-none placeholder:text-muted disabled:opacity-50"
-            style={{ maxHeight: '120px', overflowY: 'auto' }}
+            style={{ maxHeight: `${MAX_INPUT_PX}px` }}
           />
           <button
             onClick={send}
-            disabled={!input.trim() || busy}
+            disabled={(!input.trim() && !files.length) || busy}
             className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-brand text-brand-fg transition hover:brightness-110 disabled:opacity-40"
           >
             <Send size={13} />
           </button>
+          </div>
         </div>
         <p className="mt-1.5 text-center text-[10px] text-muted">
-          Enter para enviar · Shift+Enter para nueva línea
+          Enter para enviar · # para referenciar una tarea · arrastra una imagen
         </p>
       </div>
     </motion.div>

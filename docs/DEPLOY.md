@@ -1,7 +1,7 @@
 # Deploy — Ghosty Tasks
 
 Ghosty Tasks es una app TanStack Start (Nitro) stateless: el estado vive en
-EasyBits y la identidad en ghosty.studio. Deploy = dar una IP/dominio al proceso
+sqld self-host y la identidad en ghosty.studio. Deploy = dar una IP/dominio al proceso
 Node y pasarle las env vars. Sin rebake de template ni Docker obligatorio.
 
 ---
@@ -14,7 +14,7 @@ npm install
 npm run dev       # → http://localhost:3001
 ```
 
-El primer login del workspace crea el owner. Las tablas `gw_*` se crean
+El primer login del workspace crea el owner. Las tablas `task_*` se crean
 automáticamente via `ensureSchema()` en ese primer login — no hay `npm run migrate`.
 
 ---
@@ -22,9 +22,9 @@ automáticamente via `ensureSchema()` en ese primer login — no hay `npm run mi
 ## Env vars requeridas en prod
 
 ```bash
-EASYBITS_BASE_URL=https://www.easybits.cloud
-EASYBITS_API_KEY=eb_sk_live_...
-EASYBITS_DB_ID=ghostytasks
+SQLD_URL=http://172.20.0.1:8100
+SQLD_NAMESPACE=ghostytasks      # sólo el fallback del ápice
+TASKS_ROOT_DOMAIN=tasks.ghosty.studio
 GHOSTY_IDENTITY_URL=https://www.ghosty.studio
 SESSION_SECRET=<hex 32 bytes>          # genera con:
                                        # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -47,7 +47,7 @@ node .output/server/index.mjs
 ```
 
 Nitro genera un bundle autocontenido. Puede correr con Node puro, en una caja de
-EasyBits, en Fly.io, Railway, etc. — sin deps del OS más allá de Node 22.
+cualquier host con Node 22 y alcance al sqld — sin deps del OS.
 
 ---
 
@@ -58,7 +58,7 @@ deploy. Es idempotente: `IF NOT EXISTS` + `addColumn` con verificación previa.
 Si falla (blip de DB), se resetea y el siguiente request reintenta.
 
 **No hay archivos de migración separados.** Al agregar columnas nuevas:
-1. Añadir `await addColumn("gw_tabla", "col", "TIPO DEFAULT x")` dentro de `migrate()`.
+1. Añadir `await addColumn("task_tabla", "col", "TIPO DEFAULT x")` dentro de `migrate()`.
 2. En el próximo deploy, la columna aparece en el primer login.
 
 Los workspaces existentes reciben la columna via `addColumn` (aditivo). Los nuevos
@@ -102,3 +102,61 @@ secreto). Si sigue apareciendo el error, causas posibles:
 - **SESSION_SECRET ≠ GHOSTY_PARTNER_SECRET**: son dos secretos distintos con
   propósitos distintos. El primero cifra las cookies locales; el segundo firma el
   handshake con el IdP.
+
+---
+
+## Deploy real (2026-07-28): caja propia en el host OVH
+
+Ghosty Tasks vive en **https://tasks.ghosty.studio**, en una caja del host OVH
+(template `node`, **1 vCPU / 512 MB**, `sb_c4cec06e-32ac-4d93-b72e-0f21e853ad38`).
+La caja **duerme por inactividad** (`suspendOnIdle`, TTL 900s) y despierta sola
+con el primer request público — el proxy del host hace `acquire` antes de rutear.
+
+- App en `/app/ghosty-tasks/.output`, unit systemd `ghosty-tasks`, puerto 3001.
+- Env en `/app/ghosty-tasks/.env` (0600). ⚠️ `ExecStart` usa `/usr/local/bin/node`:
+  en ese template no existe `/usr/bin/node` y systemd falla con 203/EXEC.
+- Ingress: puerto 3001 expuesto + `domain:tasks.ghosty.studio` registrado en la
+  caja; Caddy resuelve el host y saca el cert con on-demand TLS.
+- DNS: A `tasks.ghosty.studio` → 54.38.94.14 (Route53).
+
+**Deploy hoy:** `./scripts/deploy_tasks.sh` (build local → push del `.output` por
+la API del host → restart del unit). ~20s.
+
+### La DB NO es EasyBits
+
+La cuenta topó las **10 DBs del plan Mega**, así que `src/dbq.server.ts` habla el
+protocolo pipeline del **sqld self-host** del propio bare metal
+(`http://172.20.0.1:8100/v2/pipeline`, header `x-namespace`), namespace
+`ghostytasks`. Es el mismo sqld que sirve a Ghosty Teams. El contrato de salida no
+cambió (filas `{ [col]: string|null }`), así que ningún caller se tocó.
+
+Vars vivas: `SQLD_URL`, `SQLD_NAMESPACE`, `SQLD_AUTH_TOKEN` (hoy vacío: el sqld no
+pide token en la red del bridge). Ya NO se usan `EASYBITS_*`.
+
+### CI — push a `main` deploya (activo desde 2026-07-28)
+
+`.github/workflows/deploy-ovh.yml` corre en la MISMA caja `ci-runner` que usa
+ghosty-studio, con un **segundo runner** registrado a este repo: servicio
+`actions-runner-tasks`, dir `/opt/actions-runner-tasks`, work `/opt/_work-tasks`,
+labels `[self-hosted, ovh, ghosty]`, nombre `ci-ovh-tasks`. Un runner self-hosted
+pertenece a UN repo, por eso no basta con el de ghosty-studio.
+
+Medido con todo dormido: **~95s** desde el push hasta el sitio actualizado.
+
+**Cómo despierta la caja, sin webhook.** ghosty-studio usa el webhook `workflow_job`
+→ `/api/ci/runner`; darlo de alta aquí necesita un admin del repo. Como el repo es
+público, la cola se ve sin credenciales: el timer `gs-tasks-ci-waker` del host
+(cada 90s, `/usr/local/bin/gs-tasks-ci-waker.sh`) sondea los runs encolados y, si
+los hay, resume la caja. No hiberna: de eso se encarga el `suspendOnIdle` (900s).
+
+⚠️ **El waker además REINICIA el runner**, y no es opcional: tras un suspend/resume
+el `Runner.Listener` vuelve con su long-poll muerto — sigue "active" dentro de la
+caja pero GitHub lo ve OFFLINE y el job se encola para siempre. Solo reinicia
+cuando no hay runs `in_progress`, para no matar un deploy en vuelo.
+
+⚠️ **Si la caja `ci-runner` se recrea** (el janitor recicla lo que lleve 72h
+hibernado), el waker de ghosty-studio solo re-registra SU runner: el de este repo
+se pierde y hay que volver a registrarlo con un token nuevo
+(Settings → Actions → Runners → New self-hosted runner, lo emite un admin).
+
+**Break-glass:** `./scripts/deploy_tasks.sh` desde la laptop.

@@ -38,13 +38,13 @@ function BoardView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <FilterBar filters={filters} members={ctx.members} onFiltersChange={setFilters} />
+      <FilterBar filters={filters} members={ctx.projectMembers} onFiltersChange={setFilters} />
       <div className="flex-1 overflow-hidden">
         <KanbanBoard
           projectId={ctx.projectId}
           columns={ctx.columns}
           tasks={visibleTasks}
-          members={ctx.members}
+          members={ctx.projectMembers}
           onTaskClick={ctx.onTaskClick}
           onColumnsChange={ctx.onColumnsChange}
           onTasksChange={ctx.onTasksChange}

@@ -1,16 +1,17 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { me } from '../server/auth'
 import { listWorkspaceUsersFn } from '../server/members'
-import { createInvite } from '../server/invites'
-import { useState } from 'react'
-import { Users, Link2, Copy, Check, Crown, Shield } from 'lucide-react'
+import { Users, Crown, Shield, Search } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { MemberAvatar } from '../components/MemberAvatar'
 
 export const Route = createFileRoute('/settings')({
   loader: async () => {
     const [user, workspaceMembers] = await Promise.all([
       me(),
-      listWorkspaceUsersFn(),
+      // Solo los últimos que entraron: el resto se busca. Cargar el padrón completo
+      // funciona con ocho personas y es inmanejable con cien.
+      listWorkspaceUsersFn({ data: { limit: 12 } }),
     ])
     return { user, workspaceMembers }
   },
@@ -19,20 +20,19 @@ export const Route = createFileRoute('/settings')({
 
 function Settings() {
   const { user, workspaceMembers } = Route.useLoaderData()
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [members, setMembers] = useState(workspaceMembers)
+  const [q, setQ] = useState('')
 
-  async function genInvite() {
-    const { url } = await createInvite()
-    setInviteUrl(url)
-  }
-
-  function copy() {
-    if (!inviteUrl) return
-    navigator.clipboard.writeText(inviteUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+  // Buscar consulta al servidor (con un respiro para no pedir por cada tecla): la lista
+  // que se ve son los últimos activos, no todo el equipo.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      listWorkspaceUsersFn({ data: { q: q.trim(), limit: q.trim() ? 20 : 12 } })
+        .then(setMembers)
+        .catch(() => {})
+    }, 220)
+    return () => clearTimeout(t)
+  }, [q])
 
   return (
     <div className="mx-auto max-w-lg py-10 px-6 space-y-5">
@@ -67,10 +67,23 @@ function Settings() {
         <div className="flex items-center gap-2 mb-4">
           <Users size={16} className="text-muted" />
           <h2 className="text-sm font-semibold text-ink">Miembros del workspace</h2>
-          <span className="text-xs text-muted">({workspaceMembers.length})</span>
+        </div>
+        {/* Buscador: la lista muestra a los últimos que entraron, no a todo el equipo —
+            con cien personas nadie la lee entera y cargarla completa es tirar datos. */}
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 focus-within:border-brand">
+          <Search size={13} className="shrink-0 text-muted" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar a alguien del equipo…"
+            className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
+          />
         </div>
         <div className="space-y-1">
-          {workspaceMembers.map((m) => (
+          {members.length === 0 && (
+            <p className="py-4 text-center text-sm text-muted">Nadie coincide con esa búsqueda.</p>
+          )}
+          {members.map((m) => (
             <div key={m.sub} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-3 transition-colors">
               <MemberAvatar name={m.name} avatar={m.avatar} size={32} />
               <div className="flex-1 min-w-0">
@@ -91,45 +104,12 @@ function Settings() {
         </div>
       </section>
 
-      {/* Invite */}
-      <section className="rounded-xl border border-border bg-surface-2 p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Link2 size={16} className="text-muted" />
-          <h2 className="text-sm font-semibold text-ink">Invitar al workspace</h2>
-        </div>
-        {user?.isOwner ? (
-          <div>
-            <p className="text-sm text-muted mb-3">
-              Genera un link de un solo uso para invitar a alguien.
-            </p>
-            {inviteUrl ? (
-              <div className="flex items-center gap-2">
-                <input
-                  readOnly
-                  value={inviteUrl}
-                  className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-ink outline-none"
-                />
-                <button
-                  onClick={copy}
-                  className="flex items-center gap-1 rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-brand-fg"
-                >
-                  {copied ? <><Check size={12} /> Copiado</> : <><Copy size={12} /> Copiar</>}
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={genInvite}
-                className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-fg hover:brightness-110 transition-all"
-              >
-                <Link2 size={14} />
-                Generar link de invitación
-              </button>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-muted">Solo el owner puede invitar miembros.</p>
-        )}
-      </section>
+      {/* La lista de arriba YA es el padrón del workspace; agregar gente es cosa de
+          Ghosty Teams, así que aquí solo se dice dónde. */}
+      <p className="px-1 text-xs text-muted">
+        El equipo es el mismo que en Ghosty Teams: quien entra ahí entra aquí. Se invita
+        desde el workspace, en Ajustes → Invitar miembros.
+      </p>
 
       <div className="pt-2">
         <Link to="/" className="text-sm text-brand hover:underline">← Volver</Link>

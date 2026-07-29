@@ -18,12 +18,12 @@ export const createColumnFn = createServerFn({ method: "POST" })
     await ensureSchema();
     await getUserSub();
     const maxRows = await dbq(
-      "SELECT COALESCE(MAX(position), -1) as m FROM gw_columns WHERE project_id = ?",
+      "SELECT COALESCE(MAX(position), -1) as m FROM task_columns WHERE project_id = ?",
       [data.project_id]
     );
     const position = num(maxRows[0]?.m) + 1;
     const rows = await dbq(
-      "INSERT INTO gw_columns (project_id, name, position, color) VALUES (?, ?, ?, ?) RETURNING *",
+      "INSERT INTO task_columns (project_id, name, position, color) VALUES (?, ?, ?, ?) RETURNING *",
       [data.project_id, data.name, position, data.color ?? null]
     );
     const col = {
@@ -50,7 +50,7 @@ export const updateColumnFn = createServerFn({ method: "POST" })
     if (data.wip_limit !== undefined) { sets.push("wip_limit = ?"); args.push(data.wip_limit); patch.wip_limit = data.wip_limit; }
     if (!sets.length) return;
     args.push(data.id);
-    await dbq(`UPDATE gw_columns SET ${sets.join(", ")} WHERE id = ?`, args);
+    await dbq(`UPDATE task_columns SET ${sets.join(", ")} WHERE id = ?`, args);
     publish(ch.project(data.project_id), { t: "column:updated", id: data.id, patch });
   });
 
@@ -61,13 +61,13 @@ export const deleteColumnFn = createServerFn({ method: "POST" })
     await getUserSub();
     // Move tasks to the first other column in the project
     const firstCol = await dbq(
-      "SELECT id FROM gw_columns WHERE project_id = ? AND id != ? ORDER BY position ASC LIMIT 1",
+      "SELECT id FROM task_columns WHERE project_id = ? AND id != ? ORDER BY position ASC LIMIT 1",
       [data.project_id, data.id]
     );
     if (firstCol[0]) {
-      await dbq("UPDATE gw_tasks SET column_id = ? WHERE column_id = ?", [firstCol[0].id, data.id]);
+      await dbq("UPDATE task_tasks SET column_id = ? WHERE column_id = ?", [firstCol[0].id, data.id]);
     }
-    await dbq("DELETE FROM gw_columns WHERE id = ?", [data.id]);
+    await dbq("DELETE FROM task_columns WHERE id = ?", [data.id]);
     publish(ch.project(data.project_id), { t: "column:deleted", id: data.id, project_id: data.project_id });
   });
 
@@ -77,7 +77,7 @@ export const reorderColumnsFn = createServerFn({ method: "POST" })
     await ensureSchema();
     await getUserSub();
     for (let i = 0; i < data.ordered_ids.length; i++) {
-      await dbq("UPDATE gw_columns SET position = ? WHERE id = ? AND project_id = ?", [i, data.ordered_ids[i], data.project_id]);
+      await dbq("UPDATE task_columns SET position = ? WHERE id = ? AND project_id = ?", [i, data.ordered_ids[i], data.project_id]);
     }
     publish(ch.project(data.project_id), { t: "columns:reordered", project_id: data.project_id, ordered_ids: data.ordered_ids });
   });

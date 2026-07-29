@@ -1,0 +1,84 @@
+name: Deploy OVH
+
+# Push a main → deploy a la caja de Ghosty Tasks en el host OVH.
+#
+# Corre en la MISMA caja `ci-runner` que usa ghosty-studio: está hibernada entre
+# deploys y la despierta el waker `POST https://www.ghosty.studio/api/ci/runner`
+# (webhook workflow_job), que filtra por las labels de abajo — no por repo, así
+# que sirve a los dos repos sin tocarlo.
+#
+# ⚠️ REQUISITOS QUE SOLO PUEDE HACER UN ADMIN DEL REPO (ver docs/DEPLOY.md):
+#   1. Registrar en la caja un runner de ESTE repo con labels [self-hosted, ovh, ghosty].
+#      Un runner self-hosted pertenece a un repo: el de ghosty-studio no toma estos jobs.
+#   2. Webhook "Workflow jobs" → https://www.ghosty.studio/api/ci/runner con el mismo
+#      secreto (GITHUB_CI_WEBHOOK_SECRET). Sin él la caja no despierta y el job se encola.
+# Mientras eso no exista, el deploy es `./scripts/deploy_tasks.sh` desde la laptop.
+#
+# NO agregar el trigger `pull_request`: el runner es self-hosted y alcanza la API del
+# host, así que un PR desde un fork ejecutaría código arbitrario con ese acceso.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+
+concurrency:
+  group: deploy-tasks-ovh # global: hay un solo prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, ovh, ghosty]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Deps
+        run: npm ci
+
+      - name: Build
+        run: NITRO_PRESET=node-server npx vite build
+
+      # El push a la caja va por la API del sandbox-host a través del bridge
+      # (172.20.0.1:8080) — sin SSH. El bearer vive en la caja del runner, en
+      # /etc/gs-deploy/env, igual que en el pipeline de ghosty-studio.
+      - name: Deploy a la caja
+        env:
+          SID: sb_c4cec06e-32ac-4d93-b72e-0f21e853ad38
+        run: |
+          set -euo pipefail
+          . /etc/gs-deploy/env   # SANDBOX_HOST_TOKEN
+          API=http://172.20.0.1:8080
+          tar -czf /tmp/gt-build.tgz .output
+          base64 -w0 /tmp/gt-build.tgz > /tmp/gt-b64.txt
+          jq -nc --arg p /tmp/gt-build.tgz --rawfile c /tmp/gt-b64.txt \
+            '{path:$p,content:$c,encoding:"base64"}' > /tmp/gt-fw.json
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/v1/sandbox/$SID/files/write" \
+            -H "Authorization: Bearer $SANDBOX_HOST_TOKEN" -H "Content-Type: application/json" \
+            --data-binary @/tmp/gt-fw.json)
+          [ "$code" = "200" ] || { echo "✗ files/write $code"; exit 1; }
+          CMD='cd /app/ghosty-tasks && rm -rf .output && tar xzf /tmp/gt-build.tgz && systemctl restart ghosty-tasks && sleep 4 && systemctl is-active ghosty-tasks'
+          out=$(curl -s -X POST "$API/v1/sandbox/$SID/exec" \
+            -H "Authorization: Bearer $SANDBOX_HOST_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -nc --arg c "$CMD" '{command:$c,timeoutSeconds:120}')")
+          echo "$out" | jq -r '.stdout'
+          [ "$(echo "$out" | jq -r '.exitCode // 0')" = "0" ] || { echo "✗ el unit no levantó"; exit 1; }
+
+  # Desde dentro de la caja, pegarle al dominio público haría hairpin contra el IP
+  # del host: el smoke va en un runner de GitHub.
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: /login responde
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://tasks.ghosty.studio/login)
+          echo "https=$code"
+          [ "$code" = "200" ] || [ "$code" = "307" ] || exit 1

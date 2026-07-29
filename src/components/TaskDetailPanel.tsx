@@ -11,9 +11,26 @@ import type { Label } from '../server/labels'
 import { getGoalsFn, linkTaskToGoalFn, unlinkTaskFromGoalFn, getTaskGoalsFn } from '../server/goals'
 import { PriorityBadge, PrioritySelect } from './PriorityBadge'
 import { MemberAvatar } from './MemberAvatar'
+import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
+import { AssigneePicker } from './AssigneePicker'
+import { registerModalEsc } from '../utils/modal-esc'
+import { taskRef } from '../utils/taskRef'
+import { RichText } from './RichText'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 type Detail = Awaited<ReturnType<typeof getTaskDetailFn>>
+
+// Lo último que se supo de cada tarea. Abrir el panel mostraba un "cargando" incluso para
+// una tarjeta recién vista; ahora se pinta al instante lo conocido y se refresca detrás.
+// Vive en el módulo (no en el componente) porque el panel se monta y desmonta con cada
+// apertura; y no crece sin control: son las tareas que TÚ abriste en esta sesión.
+type Snapshot = {
+  detail: Detail
+  comments: Awaited<ReturnType<typeof getCommentsFn>>
+  labels: Label[]
+  projectLabels: Label[]
+}
+const detailCache = new Map<number, Snapshot>()
 
 const LABEL_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444',
@@ -31,6 +48,11 @@ export function TaskDetailPanel({
   onClose,
   onDeleted,
   onLabelsChange,
+  onTaskChanged,
+  agentOpen,
+  settingsOpen,
+  refreshKey,
+  projectName,
 }: {
   taskId: number
   projectId: number
@@ -38,6 +60,19 @@ export function TaskDetailPanel({
   onClose: () => void
   onDeleted?: (id: number) => void
   onLabelsChange?: (taskId: number, labels: Label[]) => void
+  /**
+   * Lo que cambió, para la tarjeta del tablero. El panel ya lo sabe: hacerlo esperar al
+   * evento SSE dejaba la tarjeta vieja hasta recargar (p. ej. te asignabas una tarea y tu
+   * avatar no aparecía). El evento sigue llegando para los DEMÁS.
+   */
+  onTaskChanged?: (taskId: number, patch: Record<string, unknown>) => void
+  /** Con el chat abierto, el detalle se recorre para no taparlo (ni taparse). */
+  agentOpen?: boolean
+  /** Igual con Ajustes del proyecto, que es más ancho. */
+  settingsOpen?: boolean
+  /** Cambia cuando llega un evento de ESTA tarea (p. ej. el agente le añadió checklist). */
+  refreshKey?: number
+  projectName?: string
 }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -45,7 +80,9 @@ export function TaskDetailPanel({
   const [titleDraft, setTitleDraft] = useState('')
   const [newItem, setNewItem] = useState('')
   const [addingItem, setAddingItem] = useState(false)
-  const [descExpanded, setDescExpanded] = useState(false)
+  // Abierta por defecto: la descripción es el contenido de la tarea, no un detalle
+  // secundario — esconderla obligaba a un clic para leer lo que se vino a leer.
+  const [descExpanded, setDescExpanded] = useState(true)
   const titleRef = useRef<HTMLInputElement>(null)
 
   // Comments
@@ -88,6 +125,7 @@ export function TaskDetailPanel({
       setProjectLabels(pLabels)
       setTaskGoals(tGoals)
       setAllGoals(goals.map((g) => ({ id: g.id, title: g.title, status: g.status })))
+      detailCache.set(taskId, { detail: d, comments: cms, labels: lbls, projectLabels: pLabels })
     } catch (e) {
       console.error(e)
     } finally {
@@ -96,10 +134,18 @@ export function TaskDetailPanel({
   }
 
   useEffect(() => {
+    // Lo conocido primero (sin parpadeo), y la verdad en segundo plano.
+    const cached = detailCache.get(taskId)
+    if (cached) {
+      setDetail(cached.detail)
+      setTitleDraft(cached.detail.task.title)
+      setComments(cached.comments)
+      setLabels(cached.labels)
+      setProjectLabels(cached.projectLabels)
+      setLoading(false)
+    }
     load()
-    // Get current user sub from session (approximate via who created the task on panel open)
-    // We use a simple heuristic: the first member who matches — for edit/delete guards we compare server-side
-    // Actually we'll rely on the server to enforce ownership; client just shows buttons
+    // Los permisos los aplica el servidor; el cliente solo decide qué botones enseñar.
   }, [taskId])
 
   useEffect(() => {
@@ -112,6 +158,7 @@ export function TaskDetailPanel({
     if (titleDraft === detail.task.title) return
     await updateTaskFn({ data: { id: taskId, project_id: projectId, title: titleDraft } })
     setDetail((d) => d ? { ...d, task: { ...d.task, title: titleDraft } } : d)
+    onTaskChanged?.(taskId, { title: titleDraft })
   }
 
   async function toggleDone() {
@@ -119,18 +166,21 @@ export function TaskDetailPanel({
     const newStatus = detail.task.status === 'done' ? 'open' : 'done'
     await updateTaskFn({ data: { id: taskId, project_id: projectId, status: newStatus } })
     setDetail((d) => d ? { ...d, task: { ...d.task, status: newStatus } } : d)
+    onTaskChanged?.(taskId, { status: newStatus })
   }
 
   async function changePriority(priority: string | null) {
     if (!detail) return
     await updateTaskFn({ data: { id: taskId, project_id: projectId, priority } })
     setDetail((d) => d ? { ...d, task: { ...d.task, priority } } : d)
+    onTaskChanged?.(taskId, { priority })
   }
 
   async function changeAssignee(sub: string | null) {
     if (!detail) return
     await updateTaskFn({ data: { id: taskId, project_id: projectId, assignee_sub: sub } })
     setDetail((d) => d ? { ...d, task: { ...d.task, assignee_sub: sub } } : d)
+    onTaskChanged?.(taskId, { assignee_sub: sub })
   }
 
   async function addItem() {
@@ -153,13 +203,13 @@ export function TaskDetailPanel({
   }
 
   async function handleDelete() {
-    if (!confirm('¿Eliminar esta tarea?')) return
+    setConfirmArchive(false)
     try {
       await deleteTaskFn({ data: { id: taskId, project_id: projectId } })
       onDeleted?.(taskId)
       onClose()
     } catch {
-      toast.error('Error al eliminar tarea')
+      toast.error('No se pudo archivar la tarea')
     }
   }
 
@@ -198,6 +248,15 @@ export function TaskDetailPanel({
     onLabelsChange?.(taskId, updated)
   }
 
+  /** Renombra o recolorea una etiqueta de esta tarea. */
+  async function editLabel(oldLabel: string, label: string, color: string) {
+    const updated = labels.map((l) => (l.label === oldLabel ? { label, color } : l))
+    await setTaskLabelsFn({ data: { task_id: taskId, labels: updated } })
+    setLabels(updated)
+    onLabelsChange?.(taskId, updated)
+    setEditingLabel(null)
+  }
+
   async function addLabel(label: string, color: string) {
     if (labels.find((l) => l.label === label)) return
     const updated = [...labels, { label, color }]
@@ -217,8 +276,10 @@ export function TaskDetailPanel({
       setNewLabelText('')
       setNewLabelColor(LABEL_COLORS[0])
       toast.success('Label agregada')
-    } catch {
-      toast.error('Error al agregar label')
+    } catch (e) {
+      // El mensaje real, no un genérico: "Error al agregar label" no dice si fue permiso,
+      // sesión caída o la DB, y obliga a ir al log del servidor para cada reporte.
+      toast.error((e as Error)?.message || 'No se pudo agregar la etiqueta')
     }
   }
 
@@ -232,6 +293,7 @@ export function TaskDetailPanel({
     const ts = dateStr ? Math.floor(new Date(dateStr + 'T00:00:00').getTime() / 1000) : null
     await updateTaskFn({ data: { id: taskId, project_id: projectId, due_date: ts } })
     setDetail((d) => d ? { ...d, task: { ...d.task, due_date: ts } } : d)
+    onTaskChanged?.(taskId, { due_date: ts })
   }
 
   // --- Subtasks ---
@@ -275,19 +337,68 @@ export function TaskDetailPanel({
     setTaskGoals((prev) => prev.filter((g) => g.id !== goalId))
   }
 
-  const assignee = detail ? members.find((m) => m.sub === detail.task.assignee_sub) : null
+  // A quién se puede asignar DESDE LA UI: los del tablero. Traer a alguien de fuera es
+  // capacidad del agente ("mete a Oscar"), para que esta lista no sea el workspace entero.
+  const assignables = members
+  // Para PINTAR (autor de un comentario, avatar de una actividad) sí hace falta el equipo
+  // completo: alguien que ya no participa no debe quedar sin cara.
+  const team = useWorkspaceMembers(taskId != null)
+
+  // Esc cierra, como cualquier otro panel de la app.
+  const [confirmArchive, setConfirmArchive] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [editingLabel, setEditingLabel] = useState<string | null>(null)
+
+  useEffect(() => registerModalEsc(onClose), [onClose])
+
+  // Clic fuera cierra — con un listener, no con una capa encima. La capa se tragaba el
+  // primer clic: para abrir OTRA tarjeta había que hacer clic dos veces (uno para cerrar,
+  // otro para abrir). Así el clic llega a su destino y el panel se cierra solo.
+  //
+  // El chat del agente queda excluido a propósito: tocarlo no debe cerrarte la tarea que
+  // estás mirando.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement
+      if (panelRef.current?.contains(t)) return
+      if (t.closest('[data-agent-drawer]')) return
+      if (t.closest('[data-keep-detail]')) return
+      onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
+
+  // Recargar cuando algo cambió esta tarea desde fuera (el agente, otra persona).
+  useEffect(() => {
+    if (refreshKey) load()
+  }, [refreshKey])
+  const everyone = team.length ? [...team, ...members.filter((m) => !team.some((t) => t.sub === m.sub))] : members
+  const nameOf = (sub: string | null) => (sub ? everyone.find((m) => m.sub === sub)?.name ?? sub.slice(0, 8) : '')
+  const assignee = detail ? everyone.find((m) => m.sub === detail.task.assignee_sub) : null
   const doneCount = detail?.checklist.filter((c) => c.done).length ?? 0
   const totalCount = detail?.checklist.length ?? 0
   const linkedGoalIds = new Set(taskGoals.map((g) => g.id))
   const unlinkableGoals = allGoals.filter((g) => !linkedGoalIds.has(g.id))
 
   return (
+    <>
     <motion.div
+      ref={panelRef}
       initial={{ x: '100%', opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
       exit={{ x: '100%', opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-lg flex-col border-l border-border bg-surface shadow-xl"
+      // Detrás del chat del agente, y recorrido a la izquierda cuando está abierto: así
+      // se ven los dos y el chat manda (es donde estás escribiendo).
+      // Arranca DEBAJO de la barra superior: si la tapa, abrir una tarea te deja sin
+      // "Nueva tarea" ni botón del agente hasta cerrarla.
+      animate={{ x: 0, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+      // El deslizamiento de entrada (x) lo hace motion; el CORRIMIENTO lateral al abrir el
+      // chat lo hace CSS sobre `right`. Animar las dos cosas con motion hacía que el panel
+      // entrara hasta la derecha y luego saltara: eran dos animaciones peleándose.
+      className={`fixed bottom-0 top-14 z-30 flex w-full max-w-lg flex-col border-l border-t border-border bg-surface shadow-xl transition-[right] duration-300 ease-out ${
+        settingsOpen ? 'right-0 sm:right-[28rem]' : agentOpen ? 'right-0 sm:right-96' : 'right-0'
+      }`}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
@@ -300,10 +411,11 @@ export function TaskDetailPanel({
           >
             {detail?.task.status === 'done' && <Check size={11} />}
           </button>
-          <span className="text-xs text-muted font-mono">#{taskId}</span>
+          {/* La misma referencia que se ve en la tarjeta y con la que le hablas al agente. */}
+          <span className="font-mono text-xs text-muted">{projectName ? taskRef(projectName, taskId) : `#${taskId}`}</span>
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={handleDelete} className="rounded-lg p-1.5 text-muted hover:bg-red-50 hover:text-red-500 transition-colors">
+          <button onClick={() => setConfirmArchive(true)} className="rounded-lg p-1.5 text-muted hover:bg-red-50 hover:text-red-500 transition-colors">
             <Trash2 size={15} />
           </button>
           <button onClick={onClose} className="rounded-lg p-1.5 text-muted hover:bg-surface-3 transition-colors">
@@ -350,23 +462,21 @@ export function TaskDetailPanel({
               </div>
               <div>
                 <p className="mb-1 text-xs text-muted font-medium">Asignado a</p>
-                <select
-                  value={detail.task.assignee_sub ?? ''}
-                  onChange={(e) => changeAssignee(e.target.value || null)}
-                  className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand w-full"
-                >
-                  <option value="">Sin asignar</option>
-                  {members.map((m) => (
-                    <option key={m.sub} value={m.sub}>{m.name}</option>
-                  ))}
-                </select>
+                <AssigneePicker
+                  value={detail.task.assignee_sub ?? null}
+                  members={assignables}
+                  onChange={changeAssignee}
+                />
               </div>
             </div>
 
             {/* Due date */}
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5">
+                {/* Es un vencimiento: sin nombre, un campo de fecha suelto no dice si es
+                    cuándo empieza, cuándo vence o cuándo se creó. */}
                 <Calendar size={13} className="text-muted flex-shrink-0" />
+                <span className="text-xs text-muted">Vence</span>
                 <input
                   type="date"
                   value={tsToDateStr(detail.task.due_date)}
@@ -403,15 +513,16 @@ export function TaskDetailPanel({
                 Descripción
               </button>
               {descExpanded && (
-                <textarea
-                  defaultValue={detail.task.description ?? ''}
-                  onBlur={async (e) => {
-                    await updateTaskFn({ data: { id: taskId, project_id: projectId, description: e.target.value } })
-                    setDetail((d) => d ? { ...d, task: { ...d.task, description: e.target.value } } : d)
-                  }}
-                  rows={4}
+                // Texto enriquecido con el mismo editor que el chat de Teams. Se guarda
+                // MARKDOWN, no HTML: sigue siendo legible en la DB y para el agente, que
+                // lee y escribe este mismo campo.
+                <RichText
+                  value={detail.task.description ?? ''}
                   placeholder="Agrega contexto, links, notas…"
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-brand resize-none"
+                  onSave={async (markdown) => {
+                    await updateTaskFn({ data: { id: taskId, project_id: projectId, description: markdown } })
+                    setDetail((d) => (d ? { ...d, task: { ...d.task, description: markdown } } : d))
+                  }}
                 />
               )}
             </div>
@@ -431,18 +542,59 @@ export function TaskDetailPanel({
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {labels.map((l) => (
-                  <span
-                    key={l.label}
-                    className="group inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white"
-                    style={{ background: l.color }}
-                  >
-                    {l.label}
-                    <button onClick={() => removeLabel(l.label)} className="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X size={10} />
-                    </button>
-                  </span>
-                ))}
+                {labels.map((l) =>
+                  editingLabel === l.label ? (
+                    // Editar en el sitio: cambiar el texto o el color no debería obligar a
+                    // borrarla y volver a crearla (perdiendo el color que ya tenía).
+                    <span key={l.label} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5">
+                      <input
+                        autoFocus
+                        defaultValue={l.label}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const v = (e.target as HTMLInputElement).value.trim()
+                            if (v) editLabel(l.label, v, l.color)
+                          }
+                          if (e.key === 'Escape') setEditingLabel(null)
+                        }}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim()
+                          if (v && v !== l.label) editLabel(l.label, v, l.color)
+                          else setEditingLabel(null)
+                        }}
+                        className="w-24 bg-transparent text-xs text-ink outline-none"
+                      />
+                      {LABEL_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          // mousedown, no click: al tocar el color el input pierde el foco
+                          // primero, su onBlur cerraba el editor y el click nunca llegaba.
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            const v = (e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement | null)?.value.trim()
+                            editLabel(l.label, v || l.label, c)
+                          }}
+                          title="Cambiar color"
+                          className={`h-3 w-3 rounded-full ${c === l.color ? 'ring-2 ring-offset-1 ring-brand' : ''}`}
+                          style={{ background: c }}
+                        />
+                      ))}
+                    </span>
+                  ) : (
+                    <span
+                      key={l.label}
+                      className="group inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white"
+                      style={{ background: l.color }}
+                    >
+                      <button onClick={() => setEditingLabel(l.label)} title="Editar etiqueta">
+                        {l.label}
+                      </button>
+                      <button onClick={() => removeLabel(l.label)} className="opacity-0 transition-opacity group-hover:opacity-100">
+                        <X size={10} />
+                      </button>
+                    </span>
+                  )
+                )}
               </div>
               {showLabelPicker && (
                 <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3 space-y-3">
@@ -451,15 +603,22 @@ export function TaskDetailPanel({
                     <div>
                       <p className="text-[10px] text-muted font-medium mb-1.5">Labels del proyecto</p>
                       <div className="flex flex-wrap gap-1.5">
+                        {/* TODAS las del tablero, no solo las que faltan: esconder las ya
+                            puestas se leía como "faltan etiquetas". Las que ya tiene salen
+                            atenuadas y con palomita, y al tocarlas se quitan. */}
                         {projectLabels
-                          .filter((l) => !labels.find((lx) => lx.label === l.label))
+                          .map((l) => ({ ...l, on: !!labels.find((lx) => lx.label === l.label) }))
                           .map((l) => (
                             <button
                               key={l.label}
-                              onClick={() => addLabel(l.label, l.color)}
-                              className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium text-white hover:opacity-80"
+                              onClick={() => (l.on ? removeLabel(l.label) : addLabel(l.label, l.color))}
+                              title={l.on ? 'Quitar de esta tarea' : 'Poner en esta tarea'}
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white transition ${
+                                l.on ? 'opacity-45 hover:opacity-70' : 'hover:opacity-80'
+                              }`}
                               style={{ background: l.color }}
                             >
+                              {l.on && <Check size={10} />}
                               {l.label}
                             </button>
                           ))}
@@ -675,7 +834,7 @@ export function TaskDetailPanel({
               </p>
               <div className="space-y-3">
                 {comments.map((c) => {
-                  const author = members.find((m) => m.sub === c.sender_sub)
+                  const author = everyone.find((m) => m.sub === c.sender_sub)
                   return (
                     <div key={c.id} className="group flex gap-2">
                       <MemberAvatar name={c.sender_name} avatar={c.avatar ?? author?.avatar ?? ''} size={24} />
@@ -757,11 +916,11 @@ export function TaskDetailPanel({
                 <p className="mb-2 text-xs font-medium text-muted">Actividad</p>
                 <div className="space-y-1">
                   {detail.activities.map((a) => {
-                    const m = members.find((mb) => mb.sub === a.user_sub)
+                    const m = everyone.find((mb) => mb.sub === a.user_sub)
                     return (
                       <div key={a.id} className="flex items-start gap-2 text-xs text-muted">
                         {m && <MemberAvatar name={m.name} avatar={m.avatar} size={16} />}
-                        <span>{m?.name ?? 'Alguien'} {activityLabel(a.action, a.old_val, a.new_val)}</span>
+                        <span>{m?.name ?? 'Alguien'} {activityLabel(a.action, a.old_val, a.new_val, nameOf)}</span>
                       </div>
                     )
                   })}
@@ -771,15 +930,50 @@ export function TaskDetailPanel({
           </>
         ) : null}
       </div>
+    {confirmArchive && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmArchive(false)}>
+          <div className="w-full max-w-xs rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-ink">¿Archivar esta tarea?</h3>
+            <p className="mt-1.5 text-sm text-muted">
+              Sale del tablero pero no se pierde: conserva comentarios, checklist y bitácora,
+              y se puede recuperar.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmArchive(false)}
+                className="rounded-lg px-3 py-1.5 text-sm text-muted transition hover:bg-surface-3 hover:text-ink"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDelete}
+                className="rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-brand-fg transition hover:brightness-110"
+              >
+                Archivar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
+    </>
   )
 }
 
-function activityLabel(action: string, _old: string | null, newVal: string | null): string {
+function activityLabel(
+  action: string,
+  _old: string | null,
+  newVal: string | null,
+  nameOf: (sub: string | null) => string
+): string {
   switch (action) {
     case 'created': return 'creó la tarea'
     case 'moved': return `movió la tarea`
-    case 'assigned': return newVal ? `asignó a ${newVal}` : 'quitó el asignado'
+    // El valor guardado es el `sub`: mostrarlo crudo ("asignó a cms5aafs0…") no le dice
+    // nada a nadie.
+    case 'assigned': return newVal ? `asignó a ${nameOf(newVal)}` : 'quitó el asignado'
+    case 'archived': return 'archivó la tarea'
+    case 'restored': return 'restauró la tarea'
     case 'priority_changed': return newVal ? `cambió la prioridad a ${newVal}` : 'quitó la prioridad'
     case 'status_changed': return `cambió el estado a ${newVal}`
     default: return action

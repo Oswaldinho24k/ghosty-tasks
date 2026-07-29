@@ -16,12 +16,16 @@ export const Route = createFileRoute("/api/stream")({
 
         const { dbq } = await import("../dbq.server");
         const bus = await import("../server/bus.server");
+        // El namespace se resuelve UNA vez y viaja con el suscriptor: el stream vive
+        // minutos, mucho después de que el contexto del request se haya ido.
+        const { currentNamespace } = await import("../server/tenant.server");
+        const ns = await currentNamespace();
 
         // Subscribe to all projects the user is a member of
         const projectRows = await dbq(
-          `SELECT p.id FROM gw_projects p
+          `SELECT p.id FROM task_projects p
            WHERE p.archived = 0
-             AND (p.created_by = ? OR EXISTS (SELECT 1 FROM gw_project_members m WHERE m.project_id = p.id AND m.user_sub = ?))`,
+             AND (p.created_by = ? OR EXISTS (SELECT 1 FROM task_project_members m WHERE m.project_id = p.id AND m.user_sub = ?))`,
           [user.sub, user.sub]
         );
         const channels = [
@@ -39,8 +43,8 @@ export const Route = createFileRoute("/api/stream")({
             const send = (ev: WwEvent | { t: string; [k: string]: unknown }) => {
               controller.enqueue(enc.encode(`data: ${JSON.stringify(ev)}\n\n`));
             };
-            send({ t: "presence:init", online: bus.onlineUsers() });
-            unsub = bus.addClient(user.sub, user.name, channels, (ev) => {
+            send({ t: "presence:init", online: bus.onlineUsers(ns) });
+            unsub = bus.addClient(ns, user.sub, user.name, channels, (ev) => {
               try { send(ev); } catch { /* controller cerrado */ }
             });
             heartbeat = setInterval(() => {

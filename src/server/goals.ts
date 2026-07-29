@@ -57,9 +57,9 @@ export const getGoalsFn = createServerFn({ method: "GET" })
       `SELECT g.*,
         COUNT(gt.task_id) as total_tasks,
         SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) as completed_tasks
-       FROM gw_goals g
-       LEFT JOIN gw_goal_tasks gt ON gt.goal_id = g.id
-       LEFT JOIN gw_tasks t ON t.id = gt.task_id
+       FROM task_goals g
+       LEFT JOIN task_goal_tasks gt ON gt.goal_id = g.id
+       LEFT JOIN task_tasks t ON t.id = gt.task_id
        WHERE g.project_id = ?
        GROUP BY g.id
        ORDER BY g.created_at ASC`,
@@ -75,8 +75,8 @@ export const getGoalTasksFn = createServerFn({ method: "GET" })
     await getUserSub();
     const rows = await dbq(
       `SELECT t.id, t.title, t.status, t.priority, t.assignee_sub
-       FROM gw_tasks t
-       JOIN gw_goal_tasks gt ON gt.task_id = t.id
+       FROM task_tasks t
+       JOIN task_goal_tasks gt ON gt.task_id = t.id
        WHERE gt.goal_id = ?
        ORDER BY t.created_at ASC`,
       [data.goal_id]
@@ -97,8 +97,8 @@ export const getTaskGoalsFn = createServerFn({ method: "GET" })
     await getUserSub();
     const rows = await dbq(
       `SELECT g.id, g.title, g.status
-       FROM gw_goals g
-       JOIN gw_goal_tasks gt ON gt.goal_id = g.id
+       FROM task_goals g
+       JOIN task_goal_tasks gt ON gt.goal_id = g.id
        WHERE gt.task_id = ?
        ORDER BY g.created_at ASC`,
       [data.task_id]
@@ -112,7 +112,7 @@ export const createGoalFn = createServerFn({ method: "POST" })
     await ensureSchema();
     const sub = await getUserSub();
     const rows = await dbq(
-      "INSERT INTO gw_goals (project_id, title, description, due_date, created_by, created_at) VALUES (?, ?, ?, ?, ?, unixepoch()) RETURNING *",
+      "INSERT INTO task_goals (project_id, title, description, due_date, created_by, created_at) VALUES (?, ?, ?, ?, ?, unixepoch()) RETURNING *",
       [data.project_id, data.title, data.description ?? null, data.due_date ?? null, sub]
     );
     const goal = rowToGoal({ ...rows[0], total_tasks: "0", completed_tasks: "0" });
@@ -133,7 +133,7 @@ export const updateGoalFn = createServerFn({ method: "POST" })
     if (data.due_date !== undefined) { sets.push("due_date = ?"); args.push(data.due_date); }
     if (!sets.length) return;
     args.push(data.id);
-    await dbq(`UPDATE gw_goals SET ${sets.join(", ")} WHERE id = ?`, args);
+    await dbq(`UPDATE task_goals SET ${sets.join(", ")} WHERE id = ?`, args);
     publish(ch.project(data.project_id), { t: "goal:updated", id: data.id, project_id: data.project_id });
   });
 
@@ -142,8 +142,8 @@ export const deleteGoalFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await ensureSchema();
     await getUserSub();
-    await dbq("DELETE FROM gw_goal_tasks WHERE goal_id = ?", [data.id]);
-    await dbq("DELETE FROM gw_goals WHERE id = ?", [data.id]);
+    await dbq("DELETE FROM task_goal_tasks WHERE goal_id = ?", [data.id]);
+    await dbq("DELETE FROM task_goals WHERE id = ?", [data.id]);
     publish(ch.project(data.project_id), { t: "goal:deleted", id: data.id, project_id: data.project_id });
   });
 
@@ -153,7 +153,7 @@ export const linkTaskToGoalFn = createServerFn({ method: "POST" })
     await ensureSchema();
     await getUserSub();
     await dbq(
-      "INSERT OR IGNORE INTO gw_goal_tasks (goal_id, task_id) VALUES (?, ?)",
+      "INSERT OR IGNORE INTO task_goal_tasks (goal_id, task_id) VALUES (?, ?)",
       [data.goal_id, data.task_id]
     );
     publish(ch.project(data.project_id), { t: "goal:updated", id: data.goal_id, project_id: data.project_id });
@@ -164,6 +164,6 @@ export const unlinkTaskFromGoalFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await ensureSchema();
     await getUserSub();
-    await dbq("DELETE FROM gw_goal_tasks WHERE goal_id = ? AND task_id = ?", [data.goal_id, data.task_id]);
+    await dbq("DELETE FROM task_goal_tasks WHERE goal_id = ? AND task_id = ?", [data.goal_id, data.task_id]);
     publish(ch.project(data.project_id), { t: "goal:updated", id: data.goal_id, project_id: data.project_id });
   });

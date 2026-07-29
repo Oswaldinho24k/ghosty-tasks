@@ -4,38 +4,41 @@ import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { createTaskFn } from '../server/tasks'
 import { registerModalEsc } from '../utils/modal-esc'
+import { MemberAvatar } from './MemberAvatar'
 import type { Column, Task } from '../server/projects'
+import { PRIORITIES as PRIORITY_OPTIONS } from '../utils/priority'
 
-const PRIORITY_OPTIONS = [
-  { value: 'urgent', label: 'Urgente', color: '#ef4444' },
-  { value: 'high', label: 'Alta', color: '#f97316' },
-  { value: 'medium', label: 'Media', color: '#eab308' },
-  { value: 'low', label: 'Baja', color: '#60a5fa' },
-]
 
 export function CreateTaskModal({
   open,
   onClose,
   projectId,
   columns,
+  members,
   onCreated,
 }: {
   open: boolean
   onClose: () => void
   projectId: number
   columns: Column[]
+  /** Los del tablero: sumar a alguien de fuera es cosa del agente. */
+  members: Array<{ sub: string; name: string; avatar: string }>
   onCreated: (task: Task) => void
 }) {
+  const team = members
   const [title, setTitle] = useState('')
   const [columnId, setColumnId] = useState<number>(0)
   const [priority, setPriority] = useState<string | null>(null)
+  const [assignee, setAssignee] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
 
   useEffect(() => {
     if (open) {
       setTitle('')
       setPriority(null)
+      setAssignee(null)
       setColumnId(columns[0]?.id ?? 0)
       setTimeout(() => inputRef.current?.focus(), 40)
     }
@@ -56,6 +59,7 @@ export function CreateTaskModal({
         column_id: columnId,
         title: t,
         priority: priority ?? undefined,
+        assignee_sub: assignee ?? undefined,
       } })
       onCreated(task)
       toast.success('Tarea creada')
@@ -114,6 +118,26 @@ export function CreateTaskModal({
                     >
                       <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: col.color ?? '#6b7280' }} />
                       {col.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                {/* Asignar al crear: antes había que abrir la tarea después solo para
+                    ponerle dueño. El padrón es el equipo del workspace. */}
+                <p className="mb-1.5 text-xs font-medium text-muted">Asignado a <span className="font-normal">(opcional)</span></p>
+                <div className="flex flex-wrap gap-1.5">
+                  {team.map((m) => (
+                    <button
+                      key={m.sub}
+                      onClick={() => setAssignee(assignee === m.sub ? null : m.sub)}
+                      title={m.name}
+                      className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition-colors
+                        ${assignee === m.sub ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted hover:text-ink'}`}
+                    >
+                      <MemberAvatar name={m.name} avatar={m.avatar} size={18} />
+                      {m.name}
                     </button>
                   ))}
                 </div>

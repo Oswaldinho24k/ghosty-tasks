@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { X, Link2, Copy, Check, Crown, Shield, Sun, Moon, Monitor } from 'lucide-react'
+import { X, Crown, Shield, Sun, Moon, Monitor } from 'lucide-react'
 import { me } from '../server/auth'
 import { listWorkspaceUsersFn } from '../server/members'
-import { createInvite } from '../server/invites'
 import { MemberAvatar } from './MemberAvatar'
 import {
   PRESETS, getTheme, setThemePartial, resolveDark, subscribeTheme,
@@ -30,14 +29,12 @@ export function SettingsModal({
   const [user, setUser] = useState<UserInfo>(null)
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(false)
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const theme = useTheme()
 
   useEffect(() => {
     if (!open) return
     setLoading(true)
-    Promise.all([me(), listWorkspaceUsersFn()])
+    Promise.all([me(), listWorkspaceUsersFn({ data: { limit: 12 } })])
       .then(([u, ws]) => { setUser(u); setMembers(ws) })
       .finally(() => setLoading(false))
   }, [open])
@@ -46,18 +43,6 @@ export function SettingsModal({
     if (!open) return
     return registerModalEsc(onClose)
   }, [open, onClose])
-
-  async function genInvite() {
-    const { url } = await createInvite()
-    setInviteUrl(url)
-  }
-
-  function copyInvite() {
-    if (!inviteUrl) return
-    navigator.clipboard.writeText(inviteUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'perfil', label: 'Perfil' },
@@ -289,34 +274,12 @@ export function SettingsModal({
                         </div>
                       </div>
 
-                      {user?.isOwner && (
-                        <div>
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">Invitar</p>
-                          {inviteUrl ? (
-                            <div className="flex items-center gap-2">
-                              <input
-                                readOnly
-                                value={inviteUrl}
-                                className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-ink outline-none"
-                              />
-                              <button
-                                onClick={copyInvite}
-                                className="flex items-center gap-1 rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-brand-fg"
-                              >
-                                {copied ? <><Check size={11} /> OK</> : <><Copy size={11} /> Copiar</>}
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={genInvite}
-                              className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-ink hover:bg-surface-2 transition-colors"
-                            >
-                              <Link2 size={14} />
-                              Generar link de invitación
-                            </button>
-                          )}
-                        </div>
-                      )}
+                      {/* La lista de arriba YA es el padrón; agregar gente es cosa del
+                          workspace, así que aquí solo se dice dónde (sin sacar al usuario). */}
+                      <p className="text-xs text-muted">
+                        El equipo es el mismo que en Ghosty Teams: quien entra ahí entra aquí.
+                        Se invita desde el workspace, en Ajustes → Invitar miembros.
+                      </p>
                     </div>
                   )}
                 </>

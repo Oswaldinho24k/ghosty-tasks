@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { dbq, num } from "../dbq.server";
 import { ensureSchema } from "./schema.server";
+import { localAvatar } from "../utils/avatar";
 
 export type Project = {
   id: number;
@@ -97,7 +98,7 @@ function slugify(name: string): string {
 async function uniqueSlug(base: string): Promise<string> {
   let slug = base;
   for (let i = 2; ; i++) {
-    const rows = await dbq("SELECT 1 FROM gw_projects WHERE slug = ?", [slug]);
+    const rows = await dbq("SELECT 1 FROM task_projects WHERE slug = ?", [slug]);
     if (!rows[0]) return slug;
     slug = `${base}-${i}`;
   }
@@ -116,9 +117,9 @@ export const listProjectsFn = createServerFn({ method: "GET" }).handler(async ()
   await ensureSchema();
   const sub = await getUserSub();
   const rows = await dbq(
-    `SELECT p.* FROM gw_projects p
+    `SELECT p.* FROM task_projects p
      WHERE p.archived = 0
-       AND (p.created_by = ? OR EXISTS (SELECT 1 FROM gw_project_members m WHERE m.project_id = p.id AND m.user_sub = ?))
+       AND (p.created_by = ? OR EXISTS (SELECT 1 FROM task_project_members m WHERE m.project_id = p.id AND m.user_sub = ?))
      ORDER BY p.created_at ASC`,
     [sub, sub]
   );
@@ -130,26 +131,29 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     await ensureSchema();
     const sub = await getUserSub();
-    const projects = await dbq("SELECT * FROM gw_projects WHERE slug = ?", [data.slug]);
+    const projects = await dbq("SELECT * FROM task_projects WHERE slug = ?", [data.slug]);
     if (!projects[0]) throw new Error("project not found");
     const project = rowToProject(projects[0]);
 
     const columns = await dbq(
-      "SELECT * FROM gw_columns WHERE project_id = ? ORDER BY position ASC",
+      "SELECT * FROM task_columns WHERE project_id = ? ORDER BY position ASC",
       [project.id]
     );
     const tasks = await dbq(
-      "SELECT * FROM gw_tasks WHERE project_id = ? AND parent_id IS NULL ORDER BY position ASC",
+      "SELECT * FROM task_tasks WHERE project_id = ? AND parent_id IS NULL AND COALESCE(archived,0) = 0 ORDER BY position ASC",
       [project.id]
     );
     const members = await dbq(
       `SELECT u.sub, u.name, u.avatar, u.handle, m.role
-       FROM gw_project_members m JOIN gw_users u ON u.sub = m.user_sub
+       FROM task_project_members m JOIN gc_users u ON u.sub = m.user_sub
        WHERE m.project_id = ?`,
       [project.id]
     );
-    const userRow = await dbq("SELECT is_owner FROM gw_users WHERE sub = ?", [sub]);
+    const userRow = await dbq("SELECT is_owner FROM gc_users WHERE sub = ?", [sub]);
     const isOwner = num(userRow[0]?.is_owner) === 1;
+    // Ver es de todo el workspace; participar, de los miembros del tablero.
+    const { isProjectMember } = await import("./ops/access");
+    const canEdit = await isProjectMember(sub, project.id);
 
     return {
       project,
@@ -158,12 +162,13 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
       members: members.map((r) => ({
         sub: r.sub ?? "",
         name: r.name ?? "",
-        avatar: r.avatar ?? "",
+        avatar: localAvatar(r.avatar),
         handle: r.handle ?? "",
         role: r.role ?? "member",
       })),
       currentSub: sub,
       isOwner,
+      canEdit,
     };
   });
 
@@ -174,18 +179,18 @@ export const createProjectFn = createServerFn({ method: "POST" })
     const sub = await getUserSub();
     const slug = await uniqueSlug(slugify(data.name));
     const rows = await dbq(
-      "INSERT INTO gw_projects (slug, name, description, icon, color, created_by) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
+      "INSERT INTO task_projects (slug, name, description, icon, color, created_by) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
       [slug, data.name, data.description ?? null, data.icon ?? null, data.color ?? "#7c3aed", sub]
     );
     const project = rowToProject(rows[0]);
 
     // Auto-seed columns: To Do → In Progress → Done
-    await dbq("INSERT INTO gw_columns (project_id, name, position, color) VALUES (?, ?, ?, ?)", [project.id, "To Do", 0, "#6b7280"]);
-    await dbq("INSERT INTO gw_columns (project_id, name, position, color) VALUES (?, ?, ?, ?)", [project.id, "In Progress", 1, "#3b82f6"]);
-    await dbq("INSERT INTO gw_columns (project_id, name, position, color) VALUES (?, ?, ?, ?)", [project.id, "Done", 2, "#22c55e"]);
+    await dbq("INSERT INTO task_columns (project_id, name, position, color) VALUES (?, ?, ?, ?)", [project.id, "To Do", 0, "#6b7280"]);
+    await dbq("INSERT INTO task_columns (project_id, name, position, color) VALUES (?, ?, ?, ?)", [project.id, "In Progress", 1, "#3b82f6"]);
+    await dbq("INSERT INTO task_columns (project_id, name, position, color) VALUES (?, ?, ?, ?)", [project.id, "Done", 2, "#22c55e"]);
 
     // Owner auto-added as member
-    await dbq("INSERT OR IGNORE INTO gw_project_members (project_id, user_sub, role) VALUES (?, ?, ?)", [project.id, sub, "owner"]);
+    await dbq("INSERT OR IGNORE INTO task_project_members (project_id, user_sub, role) VALUES (?, ?, ?)", [project.id, sub, "owner"]);
 
     return project;
   });
@@ -204,5 +209,5 @@ export const updateProjectFn = createServerFn({ method: "POST" })
     if (data.archived !== undefined) { sets.push("archived = ?"); args.push(data.archived ? 1 : 0); }
     if (!sets.length) return;
     args.push(data.id);
-    await dbq(`UPDATE gw_projects SET ${sets.join(", ")} WHERE id = ?`, args);
+    await dbq(`UPDATE task_projects SET ${sets.join(", ")} WHERE id = ?`, args);
   });

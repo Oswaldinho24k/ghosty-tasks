@@ -15,11 +15,12 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PSlugRouteImport } from './routes/p.$slug'
-import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as PSlugListRouteImport } from './routes/p.$slug.list'
 import { Route as PSlugGoalsRouteImport } from './routes/p.$slug.goals'
 import { Route as PSlugBoardRouteImport } from './routes/p.$slug.board'
+import { Route as ApiAvatarIdRouteImport } from './routes/api.avatar.$id'
+import { Route as ApiAgentToolsRouteImport } from './routes/api.agent.tools'
 
 const SetupRoute = SetupRouteImport.update({
   id: '/setup',
@@ -51,11 +52,6 @@ const PSlugRoute = PSlugRouteImport.update({
   path: '/p/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const JoinTokenRoute = JoinTokenRouteImport.update({
-  id: '/join/$token',
-  path: '/join/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiStreamRoute = ApiStreamRouteImport.update({
   id: '/api/stream',
   path: '/api/stream',
@@ -76,6 +72,16 @@ const PSlugBoardRoute = PSlugBoardRouteImport.update({
   path: '/board',
   getParentRoute: () => PSlugRoute,
 } as any)
+const ApiAvatarIdRoute = ApiAvatarIdRouteImport.update({
+  id: '/api/avatar/$id',
+  path: '/api/avatar/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentToolsRoute = ApiAgentToolsRouteImport.update({
+  id: '/api/agent/tools',
+  path: '/api/agent/tools',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -84,8 +90,9 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
-  '/join/$token': typeof JoinTokenRoute
   '/p/$slug': typeof PSlugRouteWithChildren
+  '/api/agent/tools': typeof ApiAgentToolsRoute
+  '/api/avatar/$id': typeof ApiAvatarIdRoute
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
   '/p/$slug/list': typeof PSlugListRoute
@@ -97,8 +104,9 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
-  '/join/$token': typeof JoinTokenRoute
   '/p/$slug': typeof PSlugRouteWithChildren
+  '/api/agent/tools': typeof ApiAgentToolsRoute
+  '/api/avatar/$id': typeof ApiAvatarIdRoute
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
   '/p/$slug/list': typeof PSlugListRoute
@@ -111,8 +119,9 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/api/stream': typeof ApiStreamRoute
-  '/join/$token': typeof JoinTokenRoute
   '/p/$slug': typeof PSlugRouteWithChildren
+  '/api/agent/tools': typeof ApiAgentToolsRoute
+  '/api/avatar/$id': typeof ApiAvatarIdRoute
   '/p/$slug/board': typeof PSlugBoardRoute
   '/p/$slug/goals': typeof PSlugGoalsRoute
   '/p/$slug/list': typeof PSlugListRoute
@@ -126,8 +135,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/setup'
     | '/api/stream'
-    | '/join/$token'
     | '/p/$slug'
+    | '/api/agent/tools'
+    | '/api/avatar/$id'
     | '/p/$slug/board'
     | '/p/$slug/goals'
     | '/p/$slug/list'
@@ -139,8 +149,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/setup'
     | '/api/stream'
-    | '/join/$token'
     | '/p/$slug'
+    | '/api/agent/tools'
+    | '/api/avatar/$id'
     | '/p/$slug/board'
     | '/p/$slug/goals'
     | '/p/$slug/list'
@@ -152,8 +163,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/setup'
     | '/api/stream'
-    | '/join/$token'
     | '/p/$slug'
+    | '/api/agent/tools'
+    | '/api/avatar/$id'
     | '/p/$slug/board'
     | '/p/$slug/goals'
     | '/p/$slug/list'
@@ -166,8 +178,9 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
   ApiStreamRoute: typeof ApiStreamRoute
-  JoinTokenRoute: typeof JoinTokenRoute
   PSlugRoute: typeof PSlugRouteWithChildren
+  ApiAgentToolsRoute: typeof ApiAgentToolsRoute
+  ApiAvatarIdRoute: typeof ApiAvatarIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -214,13 +227,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/join/$token': {
-      id: '/join/$token'
-      path: '/join/$token'
-      fullPath: '/join/$token'
-      preLoaderRoute: typeof JoinTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/stream': {
       id: '/api/stream'
       path: '/api/stream'
@@ -249,6 +255,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PSlugBoardRouteImport
       parentRoute: typeof PSlugRoute
     }
+    '/api/avatar/$id': {
+      id: '/api/avatar/$id'
+      path: '/api/avatar/$id'
+      fullPath: '/api/avatar/$id'
+      preLoaderRoute: typeof ApiAvatarIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/tools': {
+      id: '/api/agent/tools'
+      path: '/api/agent/tools'
+      fullPath: '/api/agent/tools'
+      preLoaderRoute: typeof ApiAgentToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -273,8 +293,9 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
   ApiStreamRoute: ApiStreamRoute,
-  JoinTokenRoute: JoinTokenRoute,
   PSlugRoute: PSlugRouteWithChildren,
+  ApiAgentToolsRoute: ApiAgentToolsRoute,
+  ApiAvatarIdRoute: ApiAvatarIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

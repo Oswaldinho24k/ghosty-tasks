@@ -75,3 +75,76 @@ html, body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+
+/* Respuesta del agente en markdown. Compacto a propósito: vive dentro de una burbuja
+   de chat, no en una página — los márgenes por defecto de <p>/<ul> la rompían. */
+.gt-md > :first-child { margin-top: 0; }
+.gt-md > :last-child { margin-bottom: 0; }
+.gt-md p { margin: 0 0 0.5rem; }
+.gt-md ul, .gt-md ol { margin: 0 0 0.5rem; padding-left: 1.1rem; }
+.gt-md ul { list-style: disc; }
+.gt-md ol { list-style: decimal; }
+.gt-md li { margin: 0.15rem 0; }
+.gt-md strong { font-weight: 600; }
+.gt-md a { color: var(--color-brand); text-decoration: underline; text-underline-offset: 2px; }
+.gt-md code {
+  background: var(--color-surface-3);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+}
+.gt-md pre {
+  background: var(--color-surface-3);
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+  overflow-x: auto;
+  margin: 0 0 0.5rem;
+}
+.gt-md pre code { background: transparent; padding: 0; }
+.gt-md h1, .gt-md h2, .gt-md h3 { font-weight: 600; margin: 0.4rem 0 0.3rem; font-size: 1em; }
+.gt-md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 0 0 0.5rem; }
+.gt-md th, .gt-md td { border: 1px solid var(--color-border); padding: 0.2rem 0.4rem; }
+
+/* Editor de texto enriquecido (TipTap). Calcado de Ghosty Teams para que un mismo
+   contenido se vea igual en los dos productos. */
+.ProseMirror { outline: none; }
+.ProseMirror p { margin: 0; }
+.ProseMirror > * + * { margin-top: 0.35rem; }
+.ProseMirror ul, .ProseMirror ol { padding-left: 1.25rem; }
+.ProseMirror ul { list-style: disc; }
+.ProseMirror ol { list-style: decimal; }
+.ProseMirror blockquote {
+  border-left: 2px solid var(--color-border);
+  padding-left: 0.6rem;
+  color: var(--color-muted);
+}
+.ProseMirror code {
+  background: var(--color-surface-3);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+}
+.ProseMirror a { color: var(--color-brand); text-decoration: underline; text-underline-offset: 2px; }
+/* El placeholder es un ::before sobre el primer párrafo vacío; ojo con overflow:hidden
+   en el contenedor, que lo esconde. */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-muted);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* "Pensando…" del agente. Tres puntos que laten con la marca, no un cursor parpadeando:
+   el cursor sugería que la respuesta ya empezó cuando todavía no llega nada. */
+.gt-thinking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-brand);
+  animation: gt-thinking 1.1s ease-in-out infinite;
+}
+@keyframes gt-thinking {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.35; }
+  40% { transform: scale(1); opacity: 1; }
+}

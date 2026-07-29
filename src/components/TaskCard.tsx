@@ -1,8 +1,10 @@
 import type { Task } from '../server/projects'
-import { PriorityBadge } from './PriorityBadge'
 import { MemberAvatar } from './MemberAvatar'
 import { CheckSquare, Calendar } from 'lucide-react'
+import { taskRef } from '../utils/taskRef'
 import { useProject } from '../utils/projectContext'
+import { priorityColor } from '../utils/priority'
+import { dueColor, dueLabel, dueLevel } from '../utils/due'
 
 type Member = { sub: string; name: string; avatar: string }
 
@@ -12,6 +14,8 @@ export function TaskCard({
   checklistTotal,
   checklistDone,
   onClick,
+  onAskAgent,
+  projectName,
   draggable,
   onDragStart,
   onDragEnd,
@@ -22,17 +26,20 @@ export function TaskCard({
   checklistTotal?: number
   checklistDone?: number
   onClick: () => void
+  /** Abre el chat con la referencia ya escrita: hablar de una tarjeta sin teclear su id. */
+  onAskAgent?: (ref: string) => void
+  projectName: string
   draggable?: boolean
   onDragStart?: (e: React.DragEvent) => void
   onDragEnd?: () => void
   isDragging?: boolean
 }) {
-  const { taskLabels } = useProject()
+  const { taskLabels, online } = useProject()
   const labels = taskLabels[task.id] ?? []
   const assignee = members.find((m) => m.sub === task.assignee_sub)
   const hasDue = task.due_date != null
   const dueDate = hasDue ? new Date(task.due_date! * 1000) : null
-  const isOverdue = dueDate ? dueDate < new Date() && task.status !== 'done' : false
+  const level = dueDate ? dueLevel(dueDate, task.status) : null
   const hasChecklist = (checklistTotal ?? 0) > 0
 
   return (
@@ -41,20 +48,37 @@ export function TaskCard({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      className={`group relative rounded-xl border bg-surface p-3 shadow-sm transition-all
+      className={`group relative overflow-hidden rounded-xl border bg-surface p-3 shadow-sm transition-all
         hover:shadow-md hover:border-brand/30 cursor-pointer select-none
         ${isDragging ? 'opacity-40 scale-95' : ''}
         ${task.status === 'done' ? 'opacity-60' : ''}
         border-border`}
     >
-      {/* Priority dot */}
+      {/* Prioridad como barra SUPERIOR: se lee como parte de la tarjeta y no compite con
+          el borde izquierdo de la columna. La curva la pone el `overflow-hidden` de la
+          tarjeta, no un radio propio: 4px de alto con `rounded-t-xl` (12px) daba una barra
+          apuntada que se salía de la esquina en vez de seguirla. */}
       {task.priority && (
-        <div className="absolute left-0 top-3 h-3/4 w-0.5 rounded-r-full" style={{ background: priorityColor(task.priority) }} />
+        <div
+          className="absolute inset-x-0 top-0 h-1"
+          style={{ background: priorityColor(task.priority) }}
+        />
       )}
 
-      <p className={`text-sm font-medium leading-snug text-ink ${task.status === 'done' ? 'line-through text-muted' : ''}`}>
-        {task.title}
-      </p>
+      <div className="flex items-start gap-2">
+        <p className={`flex-1 text-sm font-medium leading-snug text-ink ${task.status === 'done' ? 'line-through text-muted' : ''}`}>
+          {task.title}
+        </p>
+        {onAskAgent && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAskAgent(taskRef(projectName, task.id)) }}
+            title={`Hablar de ${taskRef(projectName, task.id)} con Ghosty`}
+            className="hidden shrink-0 rounded-md p-1 text-muted opacity-0 transition group-hover:opacity-100 hover:bg-surface-3 hover:text-brand sm:block"
+          >
+            <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
 
       {/* Labels */}
       {labels.length > 0 && (
@@ -78,31 +102,37 @@ export function TaskCard({
 
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <PriorityBadge priority={task.priority} />
+          {/* La referencia que se usa para hablar de esta tarea (estilo Linear/Jira). */}
+          <span className="font-mono text-[10px] text-muted/70">{taskRef(projectName, task.id)}</span>
           {hasChecklist && (
             <span className="inline-flex items-center gap-0.5 text-xs text-muted">
               <CheckSquare size={11} />
               {checklistDone}/{checklistTotal}
             </span>
           )}
-          {dueDate && (
-            <span className={`inline-flex items-center gap-0.5 text-xs ${isOverdue ? 'text-red-400' : 'text-muted'}`}>
-              <Calendar size={11} />
-              {fmtDate(dueDate)}
+          {dueDate && level && (
+            // El punto NO es la prioridad (ésa es la franja de arriba): dice qué tan
+            // cerca está la fecha. Rojo hoy/vencida, ámbar dentro de la semana, gris
+            // después — la escala de Linear.
+            <span
+              className="inline-flex items-center gap-1 text-xs"
+              title={dueLabel(level, dueDate)}
+              style={{ color: level === 'far' || level === 'done' ? undefined : dueColor(level) }}
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dueColor(level) }} />
+              <Calendar size={11} className={level === 'far' || level === 'done' ? 'text-muted' : undefined} />
+              <span className={level === 'far' || level === 'done' ? 'text-muted' : undefined}>{fmtDate(dueDate)}</span>
             </span>
           )}
         </div>
         {assignee && (
-          <MemberAvatar name={assignee.name} avatar={assignee.avatar} size={20} />
+          <MemberAvatar name={assignee.name} avatar={assignee.avatar} size={20} online={online.includes(assignee.sub)} />
         )}
       </div>
     </div>
   )
 }
 
-function priorityColor(p: string): string {
-  return { urgent: '#ef4444', high: '#f97316', medium: '#eab308', low: '#60a5fa' }[p] ?? 'transparent'
-}
 
 function fmtDate(d: Date): string {
   return d.toLocaleDateString('es', { month: 'short', day: 'numeric' })
