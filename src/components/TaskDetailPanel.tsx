@@ -541,7 +541,13 @@ export function TaskDetailPanel({
                       {LABEL_COLORS.map((c) => (
                         <button
                           key={c}
-                          onClick={() => editLabel(l.label, l.label, c)}
+                          // mousedown, no click: al tocar el color el input pierde el foco
+                          // primero, su onBlur cerraba el editor y el click nunca llegaba.
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            const v = (e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement | null)?.value.trim()
+                            editLabel(l.label, v || l.label, c)
+                          }}
                           title="Cambiar color"
                           className={`h-3 w-3 rounded-full ${c === l.color ? 'ring-2 ring-offset-1 ring-brand' : ''}`}
                           style={{ background: c }}
