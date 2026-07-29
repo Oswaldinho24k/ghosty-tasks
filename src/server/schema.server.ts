@@ -192,6 +192,9 @@ const DDL: string[] = [
 // Columnas aditivas: `${tabla}.${columna}` → declaración. Se aplican solo si faltan.
 const COLUMNS: Array<[string, string, string]> = [
   ["task_tasks", "updated_at_check", "INTEGER"],
+  // Borrar una tarea es tirar trabajo: se archiva y deja de verse, pero se puede
+  // recuperar. Nadie quiere descubrir que el botón de la basura era literal.
+  ["task_tasks", "archived", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 async function migrate(): Promise<void> {

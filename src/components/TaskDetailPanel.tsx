@@ -13,6 +13,7 @@ import { PriorityBadge, PrioritySelect } from './PriorityBadge'
 import { MemberAvatar } from './MemberAvatar'
 import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
 import { AssigneePicker } from './AssigneePicker'
+import { registerModalEsc } from '../utils/modal-esc'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 type Detail = Awaited<ReturnType<typeof getTaskDetailFn>>
@@ -34,6 +35,7 @@ export function TaskDetailPanel({
   onDeleted,
   onLabelsChange,
   onTaskChanged,
+  agentOpen,
 }: {
   taskId: number
   projectId: number
@@ -47,6 +49,8 @@ export function TaskDetailPanel({
    * avatar no aparecía). El evento sigue llegando para los DEMÁS.
    */
   onTaskChanged?: (taskId: number, patch: Record<string, unknown>) => void
+  /** Con el chat abierto, el detalle se recorre para no taparlo (ni taparse). */
+  agentOpen?: boolean
 }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -166,13 +170,13 @@ export function TaskDetailPanel({
   }
 
   async function handleDelete() {
-    if (!confirm('¿Eliminar esta tarea?')) return
+    setConfirmArchive(false)
     try {
       await deleteTaskFn({ data: { id: taskId, project_id: projectId } })
       onDeleted?.(taskId)
       onClose()
     } catch {
-      toast.error('Error al eliminar tarea')
+      toast.error('No se pudo archivar la tarea')
     }
   }
 
@@ -295,7 +299,13 @@ export function TaskDetailPanel({
   // Para PINTAR (autor de un comentario, avatar de una actividad) sí hace falta el equipo
   // completo: alguien que ya no participa no debe quedar sin cara.
   const team = useWorkspaceMembers(taskId != null)
+
+  // Esc cierra, como cualquier otro panel de la app.
+  const [confirmArchive, setConfirmArchive] = useState(false)
+
+  useEffect(() => registerModalEsc(onClose), [onClose])
   const everyone = team.length ? [...team, ...members.filter((m) => !team.some((t) => t.sub === m.sub))] : members
+  const nameOf = (sub: string | null) => (sub ? everyone.find((m) => m.sub === sub)?.name ?? sub.slice(0, 8) : '')
   const assignee = detail ? everyone.find((m) => m.sub === detail.task.assignee_sub) : null
   const doneCount = detail?.checklist.filter((c) => c.done).length ?? 0
   const totalCount = detail?.checklist.length ?? 0
@@ -308,7 +318,11 @@ export function TaskDetailPanel({
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: '100%', opacity: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-lg flex-col border-l border-border bg-surface shadow-xl"
+      // Por encima del chat del agente: el detalle es lo que acabas de abrir, y verlo
+      // debajo del drawer obliga a cerrar el agente para leer tu propia tarea.
+      className={`fixed inset-y-0 z-50 flex w-full max-w-lg flex-col border-l border-border bg-surface shadow-xl ${
+        agentOpen ? 'right-0 sm:right-[24rem]' : 'right-0'
+      }`}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
@@ -324,7 +338,7 @@ export function TaskDetailPanel({
           <span className="text-xs text-muted font-mono">#{taskId}</span>
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={handleDelete} className="rounded-lg p-1.5 text-muted hover:bg-red-50 hover:text-red-500 transition-colors">
+          <button onClick={() => setConfirmArchive(true)} className="rounded-lg p-1.5 text-muted hover:bg-red-50 hover:text-red-500 transition-colors">
             <Trash2 size={15} />
           </button>
           <button onClick={onClose} className="rounded-lg p-1.5 text-muted hover:bg-surface-3 transition-colors">
@@ -777,7 +791,7 @@ export function TaskDetailPanel({
                     return (
                       <div key={a.id} className="flex items-start gap-2 text-xs text-muted">
                         {m && <MemberAvatar name={m.name} avatar={m.avatar} size={16} />}
-                        <span>{m?.name ?? 'Alguien'} {activityLabel(a.action, a.old_val, a.new_val)}</span>
+                        <span>{m?.name ?? 'Alguien'} {activityLabel(a.action, a.old_val, a.new_val, nameOf)}</span>
                       </div>
                     )
                   })}
@@ -787,15 +801,49 @@ export function TaskDetailPanel({
           </>
         ) : null}
       </div>
+    {confirmArchive && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmArchive(false)}>
+          <div className="w-full max-w-xs rounded-2xl border border-border bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-ink">¿Archivar esta tarea?</h3>
+            <p className="mt-1.5 text-sm text-muted">
+              Sale del tablero pero no se pierde: conserva comentarios, checklist y bitácora,
+              y se puede recuperar.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmArchive(false)}
+                className="rounded-lg px-3 py-1.5 text-sm text-muted transition hover:bg-surface-3 hover:text-ink"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDelete}
+                className="rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-brand-fg transition hover:brightness-110"
+              >
+                Archivar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   )
 }
 
-function activityLabel(action: string, _old: string | null, newVal: string | null): string {
+function activityLabel(
+  action: string,
+  _old: string | null,
+  newVal: string | null,
+  nameOf: (sub: string | null) => string
+): string {
   switch (action) {
     case 'created': return 'creó la tarea'
     case 'moved': return `movió la tarea`
-    case 'assigned': return newVal ? `asignó a ${newVal}` : 'quitó el asignado'
+    // El valor guardado es el `sub`: mostrarlo crudo ("asignó a cms5aafs0…") no le dice
+    // nada a nadie.
+    case 'assigned': return newVal ? `asignó a ${nameOf(newVal)}` : 'quitó el asignado'
+    case 'archived': return 'archivó la tarea'
+    case 'restored': return 'restauró la tarea'
     case 'priority_changed': return newVal ? `cambió la prioridad a ${newVal}` : 'quitó la prioridad'
     case 'status_changed': return `cambió el estado a ${newVal}`
     default: return action

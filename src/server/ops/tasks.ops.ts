@@ -150,14 +150,25 @@ export async function moveTaskToColumn(sub: string, data: { id: number; project_
   return position;
 }
 
+/**
+ * ARCHIVA. No borra: la tarea sale del tablero pero conserva comentarios, checklist y
+ * bitácora, y se puede devolver. El botón de la basura no debería ser irreversible —
+ * quien lo aprieta casi siempre quiere "quítala de mi vista", no "destrúyela".
+ */
 export async function deleteTask(sub: string, data: { id: number; project_id: number }): Promise<void> {
   await requireProjectMember(sub, data.project_id);
-  await dbq("DELETE FROM task_checklist_items WHERE task_id = ?", [data.id]);
-  await dbq("DELETE FROM task_comments WHERE task_id = ?", [data.id]);
-  await dbq("DELETE FROM task_labels WHERE task_id = ?", [data.id]);
-  await dbq("DELETE FROM task_activities WHERE task_id = ?", [data.id]);
-  await dbq("DELETE FROM task_tasks WHERE id = ?", [data.id]);
+  await dbq("UPDATE task_tasks SET archived = 1, updated_at = unixepoch() WHERE id = ?", [data.id]);
+  await dbq("INSERT INTO task_activities (task_id, user_sub, action) VALUES (?, ?, ?)", [data.id, sub, "archived"]);
   await publish(ch.project(data.project_id), { t: "task:deleted", id: data.id, project_id: data.project_id });
+}
+
+/** Devuelve una tarea archivada al tablero. */
+export async function restoreTask(sub: string, data: { id: number; project_id: number }): Promise<void> {
+  await requireProjectMember(sub, data.project_id);
+  await dbq("UPDATE task_tasks SET archived = 0, updated_at = unixepoch() WHERE id = ?", [data.id]);
+  await dbq("INSERT INTO task_activities (task_id, user_sub, action) VALUES (?, ?, ?)", [data.id, sub, "restored"]);
+  const rows = await dbq("SELECT * FROM task_tasks WHERE id = ?", [data.id]);
+  if (rows[0]) await publish(ch.project(data.project_id), { t: "task:created", task: rowToTask(rows[0]) });
 }
 
 export async function setTaskLabels(

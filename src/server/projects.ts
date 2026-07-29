@@ -140,7 +140,7 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
       [project.id]
     );
     const tasks = await dbq(
-      "SELECT * FROM task_tasks WHERE project_id = ? AND parent_id IS NULL ORDER BY position ASC",
+      "SELECT * FROM task_tasks WHERE project_id = ? AND parent_id IS NULL AND COALESCE(archived,0) = 0 ORDER BY position ASC",
       [project.id]
     );
     const members = await dbq(

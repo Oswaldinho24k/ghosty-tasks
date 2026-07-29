@@ -71,7 +71,8 @@ const listBoard = defineAction({
       dbq("SELECT id, name, position FROM task_columns WHERE project_id = ? ORDER BY position", [ctx.projectId]),
       dbq(
         `SELECT id, title, column_id, status, priority, assignee_sub, due_date
-           FROM task_tasks WHERE project_id = ? AND parent_id IS NULL ORDER BY column_id, position`,
+           FROM task_tasks WHERE project_id = ? AND parent_id IS NULL AND COALESCE(archived,0) = 0
+          ORDER BY column_id, position`,
         [ctx.projectId]
       ),
       dbq(
@@ -113,7 +114,7 @@ const findTasks = defineAction({
     status: { type: "string", description: "open | done" },
   },
   async run(ctx, input: { text?: string; assignee?: string; column?: string; priority?: string; status?: string }) {
-    const where: string[] = ["project_id = ?", "parent_id IS NULL"];
+    const where: string[] = ["project_id = ?", "parent_id IS NULL", "COALESCE(archived,0) = 0"];
     const args: unknown[] = [ctx.projectId];
 
     if (input.text) {
@@ -343,19 +344,19 @@ const addChecklistItem = defineAction({
 const deleteTask = defineAction({
   name: "delete_task",
   description:
-    "Borra una tarea. Es irreversible: sin confirm=true solo te dice qué se borraría, para que se lo preguntes al usuario primero.",
+    "Archiva una tarea: sale del tablero pero se puede recuperar. Sin confirm=true solo te dice cuál sería, para que se lo preguntes al usuario primero.",
   destructive: true,
   schema: {
     id: { type: "number", description: "id de la tarea", required: true },
-    confirm: { type: "boolean", description: "true para borrar de verdad" },
+    confirm: { type: "boolean", description: "true para archivarla de verdad" },
   },
   async run(ctx, input: { id: number; confirm?: boolean }) {
     const t = await taskOf(ctx.projectId, input.id);
     if (!input.confirm) {
-      return { needs: "confirmation" as const, would_delete: { id: input.id, title: t.title } };
+      return { needs: "confirmation" as const, would_archive: { id: input.id, title: t.title } };
     }
     await ops.deleteTask(ctx.sub, { id: input.id, project_id: ctx.projectId });
-    return { ok: true, deleted: input.id };
+    return { ok: true, archived: input.id, note: "se puede recuperar" };
   },
 });
 

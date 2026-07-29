@@ -309,6 +309,7 @@ function ProjectShell() {
               setTaskLabels((prev) => { const n = { ...prev }; delete n[id]; return n })
             }}
             onLabelsChange={(taskId, labels) => setTaskLabels((prev) => ({ ...prev, [taskId]: labels }))}
+            agentOpen={agentOpen}
             onTaskChanged={(id, patch) =>
               setTasks((prev) => prev.map((t) => (t.id === id ? ({ ...t, ...patch } as Task) : t)))
             }
