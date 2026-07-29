@@ -324,6 +324,11 @@ export function TaskDetailPanel({
   const unlinkableGoals = allGoals.filter((g) => !linkedGoalIds.has(g.id))
 
   return (
+    <>
+    {/* Clic fuera cierra el detalle. Va DEBAJO del chat del agente (z-40) a propósito:
+        tocar el chat no debe cerrarte la tarea que estás mirando, y perder lo que estás
+        escribiendo ahí sería peor. */}
+    <div className="fixed inset-0 z-20" onClick={onClose} />
     <motion.div
       initial={{ x: '100%', opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
@@ -842,6 +847,7 @@ export function TaskDetailPanel({
         </div>
       )}
     </motion.div>
+    </>
   )
 }
 
