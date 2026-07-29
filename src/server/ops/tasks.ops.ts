@@ -1,6 +1,7 @@
 import { dbq, num } from "../../dbq.server";
 import { publish, ch } from "../bus.server";
 import type { Task } from "../projects";
+import { requireProjectMember, joinByAssignment, projectOfTask } from "./access";
 
 // Las mutaciones, sin sesión: reciben QUIÉN las pide.
 //
@@ -58,6 +59,9 @@ export type CreateTaskInput = {
 };
 
 export async function createTask(sub: string, data: CreateTaskInput): Promise<Task> {
+  await requireProjectMember(sub, data.project_id);
+  // Asignar mete a la persona al tablero: es la puerta de entrada (ver access.ts).
+  await joinByAssignment(data.project_id, data.assignee_sub);
   const position = await nextPosition(data.column_id);
   const rows = await dbq(
     `INSERT INTO task_tasks (project_id, column_id, parent_id, title, description, priority, assignee_sub, due_date, position, created_by, updated_at)
@@ -84,6 +88,8 @@ export type UpdateTaskInput = {
 };
 
 export async function updateTask(sub: string, data: UpdateTaskInput): Promise<void> {
+  await requireProjectMember(sub, data.project_id);
+  if (data.assignee_sub) await joinByAssignment(data.project_id, data.assignee_sub);
   const current = await dbq("SELECT * FROM task_tasks WHERE id = ?", [data.id]);
   if (!current[0]) throw new Error("task not found");
 
@@ -120,6 +126,7 @@ export async function moveTask(
   sub: string,
   data: { id: number; project_id: number; column_id: number; prev_position: number | null; next_position: number | null }
 ): Promise<number> {
+  await requireProjectMember(sub, data.project_id);
   const prev = data.prev_position ?? 0;
   const next = data.next_position ?? prev + 2000;
   const position = (prev + next) / 2;
@@ -133,6 +140,7 @@ export async function moveTask(
 
 /** Mueve al FINAL de una columna. Es lo que quiere decir "muévela a Done". */
 export async function moveTaskToColumn(sub: string, data: { id: number; project_id: number; column_id: number }) {
+  await requireProjectMember(sub, data.project_id);
   const position = await nextPosition(data.column_id);
   await dbq("UPDATE task_tasks SET column_id = ?, position = ?, updated_at = unixepoch() WHERE id = ?",
     [data.column_id, position, data.id]);
@@ -142,7 +150,8 @@ export async function moveTaskToColumn(sub: string, data: { id: number; project_
   return position;
 }
 
-export async function deleteTask(_sub: string, data: { id: number; project_id: number }): Promise<void> {
+export async function deleteTask(sub: string, data: { id: number; project_id: number }): Promise<void> {
+  await requireProjectMember(sub, data.project_id);
   await dbq("DELETE FROM task_checklist_items WHERE task_id = ?", [data.id]);
   await dbq("DELETE FROM task_comments WHERE task_id = ?", [data.id]);
   await dbq("DELETE FROM task_labels WHERE task_id = ?", [data.id]);
@@ -152,11 +161,11 @@ export async function deleteTask(_sub: string, data: { id: number; project_id: n
 }
 
 export async function setTaskLabels(
-  _sub: string,
+  sub: string,
   data: { task_id: number; labels: { label: string; color: string }[] }
 ): Promise<void> {
-  const rows = await dbq("SELECT project_id FROM task_tasks WHERE id = ?", [data.task_id]);
-  const projectId = num(rows[0]?.project_id);
+  const projectId = await projectOfTask(data.task_id);
+  await requireProjectMember(sub, projectId);
   await dbq("DELETE FROM task_labels WHERE task_id = ?", [data.task_id]);
   for (const l of data.labels) {
     await dbq("INSERT OR IGNORE INTO task_labels (task_id, label, color) VALUES (?, ?, ?)",
@@ -171,6 +180,7 @@ export async function addComment(
   user: { sub: string; name: string; avatar: string },
   data: { task_id: number; body: string }
 ) {
+  await requireProjectMember(user.sub, await projectOfTask(data.task_id));
   const rows = await dbq(
     `INSERT INTO task_comments (task_id, sender_sub, sender_name, avatar, body, created_at)
      VALUES (?, ?, ?, ?, ?, unixepoch()) RETURNING *`,
@@ -191,7 +201,8 @@ export async function addComment(
   return comment;
 }
 
-export async function addChecklistItem(_sub: string, data: { task_id: number; body: string }) {
+export async function addChecklistItem(sub: string, data: { task_id: number; body: string }) {
+  await requireProjectMember(sub, await projectOfTask(data.task_id));
   const rows = await dbq(
     `INSERT INTO task_checklist_items (task_id, body, position)
      VALUES (?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM task_checklist_items WHERE task_id = ?)) RETURNING *`,
@@ -201,7 +212,8 @@ export async function addChecklistItem(_sub: string, data: { task_id: number; bo
   return { id: num(rows[0]?.id), body: data.body, done: false };
 }
 
-export async function toggleChecklistItem(_sub: string, data: { id: number; task_id: number; done: boolean }) {
+export async function toggleChecklistItem(sub: string, data: { id: number; task_id: number; done: boolean }) {
+  await requireProjectMember(sub, await projectOfTask(data.task_id));
   await dbq("UPDATE task_checklist_items SET done = ? WHERE id = ? AND task_id = ?",
     [data.done ? 1 : 0, data.id, data.task_id]);
   await publish(ch.task(data.task_id), { t: "checklist:updated", task_id: data.task_id });

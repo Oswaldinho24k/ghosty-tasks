@@ -70,6 +70,9 @@ function ProjectShell() {
     return [...bySub.values()]
   }, [team, projectMembers])
 
+  // Ver es de todo el workspace; participar, de los miembros del tablero.
+  const canEdit = initial.canEdit ?? true
+
   const currentUser = members.find((m) => m.sub === initial.currentSub)
 
   useEffect(() => {
@@ -240,14 +243,16 @@ function ProjectShell() {
                 />
               ))}
             </div>
-            <button
-              onClick={() => setCreateTaskOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-brand-fg transition hover:brightness-110"
-              title="Nueva tarea"
-            >
-              <Plus size={13} />
-              <span className="hidden sm:inline">Nueva tarea</span>
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => setCreateTaskOpen(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-brand-fg transition hover:brightness-110"
+                title="Nueva tarea"
+              >
+                <Plus size={13} />
+                <span className="hidden sm:inline">Nueva tarea</span>
+              </button>
+            )}
             <button
               onClick={() => setAgentOpen((v) => !v)}
               className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
@@ -270,6 +275,13 @@ function ProjectShell() {
           </div>
         </div>
 
+        {/* Solo lectura: decirlo en vez de dejar botones que fallan al tocarlos. */}
+        {!canEdit && (
+          <p className="border-b border-border bg-surface-2 px-4 py-1.5 text-center text-[11px] text-muted">
+            Solo lectura — no participas en este tablero. Te suman asignándote una tarea.
+          </p>
+        )}
+
         {/* View content via React Context */}
         <div className="flex-1 overflow-hidden">
           <ProjectContext.Provider value={{
@@ -277,6 +289,7 @@ function ProjectShell() {
             columns,
             tasks,
             members,
+            canEdit,
             taskLabels,
             onTaskClick: (t: Task) => setSelectedTaskId(t.id),
             onColumnsChange: setColumns,

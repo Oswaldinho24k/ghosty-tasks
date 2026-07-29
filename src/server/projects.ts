@@ -151,6 +151,9 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
     );
     const userRow = await dbq("SELECT is_owner FROM gc_users WHERE sub = ?", [sub]);
     const isOwner = num(userRow[0]?.is_owner) === 1;
+    // Ver es de todo el workspace; participar, de los miembros del tablero.
+    const { isProjectMember } = await import("./ops/access");
+    const canEdit = await isProjectMember(sub, project.id);
 
     return {
       project,
@@ -165,6 +168,7 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
       })),
       currentSub: sub,
       isOwner,
+      canEdit,
     };
   });
 

@@ -206,17 +206,17 @@ export function ProjectSettingsPanel({
 
         {/* Quién está en el equipo: se mira aquí mismo, sin salir de la app. */}
         <section>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Equipo</p>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Equipo del tablero</p>
           <button
             onClick={() => setMembersOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
           >
             <Users size={14} />
-            Ver miembros del workspace
+            Ver miembros del proyecto
           </button>
         </section>
 
-        <WorkspaceMembersModal open={membersOpen} onClose={() => setMembersOpen(false)} />
+        <WorkspaceMembersModal open={membersOpen} onClose={() => setMembersOpen(false)} members={members} />
 
         {/* Danger zone */}
         {isOwner && (

@@ -9,6 +9,8 @@ export type ProjectContextValue = {
   columns: Column[]
   tasks: Task[]
   members: Member[]
+  /** ¿Esta persona participa en el tablero? Si no, la UI va en solo lectura. */
+  canEdit: boolean
   taskLabels: Record<number, Label[]>
   onTaskClick: (t: Task) => void
   onColumnsChange: (cols: Column[]) => void

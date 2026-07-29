@@ -6,6 +6,7 @@ import type { Task, Column } from '../server/projects'
 import { createTaskFn, moveTaskFn } from '../server/tasks'
 import { createColumnFn, updateColumnFn, deleteColumnFn } from '../server/columns'
 import { TaskCard } from './TaskCard'
+import { useProject } from '../utils/projectContext'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 
@@ -35,6 +36,8 @@ export function KanbanBoard({
   onColumnsChange: (cols: Column[]) => void
   onTasksChange: (tasks: Task[]) => void
 }) {
+  // Ver es de todo el workspace; arrastrar tarjetas, solo de quien participa.
+  const { canEdit } = useProject()
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const [addingCol, setAddingCol] = useState(false)
   const [colName, setColName] = useState('')
@@ -329,7 +332,7 @@ export function KanbanBoard({
                         task={task}
                         members={members}
                         onClick={() => onTaskClick(task)}
-                        draggable
+                        draggable={canEdit}
                         onDragStart={(e) => onDragStart(e, task)}
                         onDragEnd={onDragEnd}
                         isDragging={draggingId === task.id}
