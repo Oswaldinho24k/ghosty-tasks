@@ -93,23 +93,23 @@ type SessionUser = {
   email: string;
   name: string;
   avatar: string;
-  isOwner: boolean; // calculado en gw_users al primer login (primer user = owner)
+  isOwner: boolean; // calculado en gc_users al primer login (primer user = owner)
   handle: string;   // slug derivado del email, único en el workspace
 }
 ```
 
-El `sub` es el identificador primario. Todas las tablas `gw_*` lo usan para
+El `sub` es el identificador primario. Todas las tablas `task_*` lo usan para
 relacionar acciones con usuarios.
 
 ## Primer usuario = owner
 
-`completeGhostyLogin` → `upsertUser` → `SELECT COUNT(*) FROM gw_users`. Si es 0,
+`completeGhostyLogin` → `upsertUser` → `SELECT COUNT(*) FROM gc_users`. Si es 0,
 `is_owner = 1`. Los demás necesitan un link de invitación (un solo uso, tabla
-`gw_invites`).
+`task_invites`).
 
 ## Expulsión (`banned`)
 
-La columna `banned INTEGER DEFAULT 0` en `gw_users` bloquea el login antes del
+La columna `banned INTEGER DEFAULT 0` en `gc_users` bloquea el login antes del
 upsert:
 
 ```ts

@@ -1,7 +1,7 @@
 # Deploy — Ghosty Tasks
 
 Ghosty Tasks es una app TanStack Start (Nitro) stateless: el estado vive en
-EasyBits y la identidad en ghosty.studio. Deploy = dar una IP/dominio al proceso
+sqld self-host y la identidad en ghosty.studio. Deploy = dar una IP/dominio al proceso
 Node y pasarle las env vars. Sin rebake de template ni Docker obligatorio.
 
 ---
@@ -14,7 +14,7 @@ npm install
 npm run dev       # → http://localhost:3001
 ```
 
-El primer login del workspace crea el owner. Las tablas `gw_*` se crean
+El primer login del workspace crea el owner. Las tablas `task_*` se crean
 automáticamente via `ensureSchema()` en ese primer login — no hay `npm run migrate`.
 
 ---
@@ -22,9 +22,9 @@ automáticamente via `ensureSchema()` en ese primer login — no hay `npm run mi
 ## Env vars requeridas en prod
 
 ```bash
-EASYBITS_BASE_URL=https://www.easybits.cloud
-EASYBITS_API_KEY=eb_sk_live_...
-EASYBITS_DB_ID=ghostytasks
+SQLD_URL=http://172.20.0.1:8100
+SQLD_NAMESPACE=ghostytasks      # sólo el fallback del ápice
+TASKS_ROOT_DOMAIN=tasks.ghosty.studio
 GHOSTY_IDENTITY_URL=https://www.ghosty.studio
 SESSION_SECRET=<hex 32 bytes>          # genera con:
                                        # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -47,7 +47,7 @@ node .output/server/index.mjs
 ```
 
 Nitro genera un bundle autocontenido. Puede correr con Node puro, en una caja de
-EasyBits, en Fly.io, Railway, etc. — sin deps del OS más allá de Node 22.
+cualquier host con Node 22 y alcance al sqld — sin deps del OS.
 
 ---
 
@@ -58,7 +58,7 @@ deploy. Es idempotente: `IF NOT EXISTS` + `addColumn` con verificación previa.
 Si falla (blip de DB), se resetea y el siguiente request reintenta.
 
 **No hay archivos de migración separados.** Al agregar columnas nuevas:
-1. Añadir `await addColumn("gw_tabla", "col", "TIPO DEFAULT x")` dentro de `migrate()`.
+1. Añadir `await addColumn("task_tabla", "col", "TIPO DEFAULT x")` dentro de `migrate()`.
 2. En el próximo deploy, la columna aparece en el primer login.
 
 Los workspaces existentes reciben la columna via `addColumn` (aditivo). Los nuevos

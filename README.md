@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Gestión de tareas sin burocracia.</b><br/>
-  Kanban + lista + goals — single-workspace, cloud-native.
+  Kanban + lista + goals — un tablero por equipo, sobre el workspace de Ghosty Teams.
 </p>
 
 <p align="center">
@@ -35,9 +35,14 @@ el mismo equipo (y el mismo agente) que ya tienes en Ghosty Teams.
   La app redirige al IdP y recibe la identidad firmada de vuelta. Mismo handshake
   que usa Ghosty Teams.
 - **sqld (libsql-server)** → base de datos, self-host en el mismo bare metal.
-  Cliente HTTP directo al protocolo pipeline, namespace `ghostytasks`. Sin ORM y
-  sin migraciones manuales: `ensureSchema()` crea las tablas `gw_*` en el primer
-  login. (Antes era EasyBits; se movió al topar el límite de DBs del plan.)
+  Cliente HTTP directo al protocolo pipeline. Sin ORM y sin migraciones manuales:
+  `ensureSchema()` crea las tablas `task_*` la primera vez que se entra a cada
+  workspace. (Antes era EasyBits; se movió al topar el límite de DBs del plan.)
+- **Un namespace por workspace, y es el MISMO del chat.** `business.tasks.ghosty.studio`
+  y `business.teams.ghosty.studio` hablan con la misma DB: las tareas (`task_*`) conviven
+  con el chat (`gc_*`) y comparten el perfil de las personas (`gc_users`). El subdominio
+  decide el namespace en cada request (`tenant.server.ts`), y quién pertenece al equipo lo
+  contesta ghosty.studio — no una tabla local.
 - **La app** → [TanStack Start](https://tanstack.com/start) (React 19 SSR) +
   Tailwind 4. Compute stateless; el estado durable vive en el sqld.
 

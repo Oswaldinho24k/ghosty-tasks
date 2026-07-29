@@ -1,8 +1,8 @@
 # Ghosty Tasks — Arquitectura
 
-Gestión de tareas single-workspace (Kanban + lista + goals) con **tiempo real vía
-SSE**, identidad delegada a **ghosty.studio** y estado persistido en **EasyBits**.
-Compute stateless; una instancia, un equipo.
+Gestión de tareas (Kanban + lista + goals) con **tiempo real vía SSE**, identidad delegada
+a **ghosty.studio** y estado en **sqld self-host**. Compute stateless; **un proceso sirve
+a todos los workspaces**, separados por namespace.
 
 ---
 
@@ -10,33 +10,34 @@ Compute stateless; una instancia, un equipo.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  GHOSTY.STUDIO  (www.ghosty.studio)                           │
-│  · Identity Provider: login con Google                        │
-│  · Handshake firmado HMAC → devuelve identidad al app         │
-│  · Single-logout: /logout limpia la sesión del IdP            │
+│  GHOSTY.STUDIO  (www.ghosty.studio)                          │
+│  · Identity Provider: login con Google                       │
+│  · Padrón del workspace: quién pertenece al equipo (HMAC)    │
+│  · Handshake firmado → devuelve la identidad a la app        │
 └───────────────┬──────────────────────────────────────────────┘
                 │ redirect 302 con ?payload&sig
                 ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  EASYBITS  (www.easybits.cloud)                               │
-│  · DB aislada por instancia (HTTP API sobre libSQL)           │
-│  · Un DB_ID por workspace; todas las tablas gw_* ahí          │
-│  · Sin ORM — cliente HTTP directo (src/dbq.server.ts)         │
+│  SQLD (libsql-server, self-host en el bare metal)            │
+│  · UN NAMESPACE POR WORKSPACE = una DB                       │
+│  · La MISMA que usa el chat: task_* junto a gc_*             │
+│  · Sin ORM — cliente HTTP al protocolo pipeline (dbq.server) │
 └───────────────┬──────────────────────────────────────────────┘
-                │ POST /api/v2/databases/:DB_ID/query
+                │ POST /v2/pipeline  (header x-namespace)
                 ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  GHOSTY TASKS INSTANCE  (TanStack Start, una por equipo)      │
-│  · Kanban, lista, goals, labels, comments, checklist          │
-│  · Estado → DB EasyBits (gw_* tables)                         │
-│  · Login → redirect server-side a ghosty.studio               │
-│  · SSE in-process (bus.server.ts, sin Redis)                  │
+│  GHOSTY TASKS  (TanStack Start, un solo proceso)             │
+│  · <slug>.tasks.ghosty.studio → slug = namespace             │
+│  · Kanban, lista, goals, labels, comentarios, checklist      │
+│  · El agente del equipo, con herramientas reales             │
+│  · SSE in-process (bus.server.ts, sin Redis) POR NAMESPACE   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-A diferencia de ghosty-teams (que usa sqld/libSQL directo y corre en microVMs
-Firecracker por workspace), ghosty-tasks consume EasyBits como API HTTP y es
-single-workspace: una instancia = un equipo.
+⚠️ **Nada global en memoria.** Un proceso atiende varios workspaces: cachés, canales SSE y
+memos de schema van **por namespace** o filtran datos de un equipo a otro. Ya pasó con el
+bus (canales globales) y con `ensureSchema` (un `done` global hacía que el segundo
+workspace se saltara sus migraciones → "no such table").
 
 ---
 
@@ -45,76 +46,46 @@ single-workspace: una instancia = un equipo.
 | Capa | Tecnología |
 |---|---|
 | Framework | TanStack Start (SSR, Nitro) + TanStack Router (file-based) |
-| UI | React 19 + Tailwind 4 + Motion (framer) |
-| Iconos | Lucide React |
-| Toasts | Sonner (`<Toaster richColors />`) |
-| DB | EasyBits HTTP API (`src/dbq.server.ts`) |
-| Auth | ghosty.studio (redirect server-side, HMAC opcional) |
+| UI | React 19 + Tailwind 4 + Motion |
+| Editor | TipTap 3 + `tiptap-markdown` (descripciones en markdown) |
+| DB | sqld / libSQL, protocolo pipeline (`src/dbq.server.ts`) |
+| Auth | ghosty.studio (redirect server-side + firma de partner) |
 | Session | `useSession` de TanStack Start (`gw_session`, 30 días) |
 | Realtime | SSE in-process (`/api/stream`, `bus.server.ts`) |
-| Tema | CSS vars en `<html>` + 12 presets en `PRESETS[]` |
+| Agente | runtime nativo de gs, por HMAC de partner |
 | PWA | `manifest.webmanifest` + `public/sw.js` |
 
 ---
 
-## 3. Cliente DB — `src/dbq.server.ts`
+## 3. Multi-tenancy — `src/server/tenant.server.ts`
 
-Todo acceso a la DB pasa por `dbq(sql, args)`. El cliente habla HTTP contra
-EasyBits: un `POST` con el SQL y los parámetros, recibe columnas + filas y
-devuelve `Row[]` (objetos planos). Sin migraciones en archivos; el schema se
-aplica en runtime vía `ensureSchema()`.
+El **subdominio** manda: `business.tasks.ghosty.studio` → slug `business`. El slug se
+canjea por el namespace preguntándole a gs con **firma de partner**
+(`HMAC(GHOSTY_PARTNER_SECRET, "${ts}.${slug}")`), con caché de 60s y respuesta rancia si
+gs no contesta. El ápice (sin slug) cae a `SQLD_NAMESPACE`.
 
-```ts
-// Env vars requeridas:
-EASYBITS_BASE_URL=https://www.easybits.cloud
-EASYBITS_API_KEY=eb_sk_live_...
-EASYBITS_DB_ID=ghostytasks
-```
-
-`dbq` lanza en dev si las vars no están. Los helpers `num(v)` y `str(v)` colapsan
-`null | undefined` a cero o cadena vacía — úsalos al leer filas.
+El **padrón** también vive en gs (`membership.server.ts`): quién es del equipo y con qué
+rol. Local sólo está el perfil (`gc_users`, compartido con el chat) y la pertenencia **por
+proyecto** (`task_project_members`).
 
 ---
 
-## 4. Schema — `src/server/schema.server.ts`
+## 4. Cliente DB y schema
 
-`ensureSchema()` corre migraciones aditivas e idempotentes al arrancar (en el
-primer login). Todo es `IF NOT EXISTS` + `addColumn` con verificación previa via
-`PRAGMA table_info`. Si falla, se resetea y el siguiente request reintenta.
+`dbq(sql, args)` habla el protocolo pipeline de sqld y resuelve el namespace del request
+en cada llamada. `ensureSchema()` aplica DDL aditivo e idempotente —memoizado **por
+namespace**— en un solo round-trip; las columnas nuevas se agregan verificando antes con
+`PRAGMA table_info`.
 
-**Tabla `gw_users`** — espejo local de la identidad de ghosty.studio:
+Prefijos: **`task_*`** son de este producto; **`gc_*`** son del chat y sólo se toca
+`gc_users`, que es el perfil compartido a propósito.
 
-```sql
-sub TEXT PRIMARY KEY, email, name, avatar, handle TEXT UNIQUE,
-is_owner INTEGER DEFAULT 0, banned INTEGER DEFAULT 0,
-created_at INTEGER DEFAULT (unixepoch())
+```ts
+// Env:
+SQLD_URL=http://172.20.0.1:8100
+SQLD_NAMESPACE=ghostytasks   // sólo el fallback del ápice
+GHOSTY_PARTNER_SECRET=...    // firma contra gs (namespace, padrón, storage)
 ```
-
-`banned = 1` bloquea el login antes de tocar la sesión (chequeado en
-`completeGhostyLogin`).
-
-**14 tablas `gw_*` en total:**
-
-| Tabla | Propósito |
-|---|---|
-| `gw_users` | Miembros del workspace |
-| `gw_invites` | Tokens de invitación (un solo uso) |
-| `gw_config` | Key-value de configuración del workspace |
-| `gw_projects` | Proyectos (slug único, color, icono) |
-| `gw_project_members` | Rol por proyecto (owner/member) |
-| `gw_columns` | Columnas Kanban por proyecto |
-| `gw_tasks` | Tareas (título, descripción, prioridad, asignado, posición REAL) |
-| `gw_task_labels` | Labels chip por tarea (texto + color) |
-| `gw_checklist_items` | Items de checklist por tarea |
-| `gw_task_comments` | Comentarios humanos en tareas |
-| `gw_task_activities` | Log de actividad por tarea |
-| `gw_goals` | Goals / épicas ligeras por proyecto |
-| `gw_goal_tasks` | Relación goal ↔ tarea |
-| `gw_bridge_tokens` | Tokens para webhook Bridge (ghosty-teams → ghosty-tasks) |
-
-**Posición de tareas:** `REAL` (gap de 65 536 entre tareas). Reorder = UPDATE de
-una sola fila; el compactado (cuando `gap < 1`) renombra todas las posiciones.
-Nunca se actualizan N filas por drag-and-drop.
 
 ---
 
@@ -255,14 +226,16 @@ también cerraba el settings modal de abajo.
 ## 10. Env vars
 
 ```bash
-# DB (EasyBits)
-EASYBITS_BASE_URL=https://www.easybits.cloud
-EASYBITS_API_KEY=eb_sk_live_...       # API key de la cuenta EasyBits
-EASYBITS_DB_ID=ghostytasks            # ID de la base de datos
+# DB (sqld self-host, por el bridge; no pide token en esa red)
+SQLD_URL=http://172.20.0.1:8100
+SQLD_NAMESPACE=ghostytasks            # SÓLO el fallback del ápice: lo normal es que el
+                                      # namespace lo dicte el subdominio del workspace
 
-# Identity Provider
+# Identity Provider + padrón del workspace
 GHOSTY_IDENTITY_URL=https://www.ghosty.studio  # default, raramente se cambia
-GHOSTY_PARTNER_SECRET=               # opcional — si ghosty.studio lo provee, verifica HMAC
+GHOSTY_PARTNER_SECRET=               # REQUERIDO: firma el canje slug→namespace, el padrón,
+                                     # el storage de imágenes y las tools del agente
+TASKS_ROOT_DOMAIN=tasks.ghosty.studio
 
 # Sesión
 SESSION_SECRET=<hex 32 bytes>        # distinto al de ghosty-teams; genera con:
@@ -271,9 +244,9 @@ SESSION_SECRET=<hex 32 bytes>        # distinto al de ghosty-teams; genera con:
 # Override del origin (opcional, lo detecta del request si no está)
 APP_URL=
 
-# EasyBits Fleet (agente Ghosty AI — futuro)
-EASYBITS_FLEET_ID=
-EASYBITS_FLEET_TOKEN=
+# Agente: se resuelve desde gc_config.agent_runtime_url del workspace; este env es el
+# respaldo cuando la fila no lo dice.
+GHOSTY_RUNTIME_URL=
 ```
 
 ---
@@ -282,12 +255,12 @@ EASYBITS_FLEET_TOKEN=
 
 | Aspecto | ghosty-teams | ghosty-tasks |
 |---|---|---|
-| Dominio | `*.teams.ghosty.studio` (multi-tenant) | URL única (single-workspace) |
-| DB | sqld/libSQL directo (`SQLD_URL`) | EasyBits HTTP API |
-| Deploy | microVM Firecracker + rebake template | proceso único (Node/Nitro) |
-| Auth secret | `GHOSTY_PARTNER_SECRET` requerido | `GHOSTY_PARTNER_SECRET` opcional |
-| Tablas | `gc_*` | `gw_*` |
-| Schema seed | Ghosty Studio crea el namespace + seed | `ensureSchema()` en el primer login |
+| Dominio | `*.teams.ghosty.studio` | `*.tasks.ghosty.studio` (mismo slug) |
+| DB | sqld/libSQL directo (`SQLD_URL`) | el MISMO sqld y el MISMO namespace |
+| Deploy | microVM Firecracker + rebake template | caja propia + CI (push a main) |
+| Auth secret | `GHOSTY_PARTNER_SECRET` requerido | requerido también |
+| Tablas | `gc_*` | `task_*` (+ `gc_users` compartido) |
+| Schema seed | Ghosty Studio crea el namespace + seed | `ensureSchema()` al primer request |
 | Realtime | Bus in-process (mismo patrón) | Bus in-process |
 | SSE keys | `gt.*` en localStorage | `gt.*` en localStorage |
 | Presets | 12 | 12 (idénticos) |
