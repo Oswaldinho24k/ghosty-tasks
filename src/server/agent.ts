@@ -196,6 +196,14 @@ async function runAgentTurn(opts: {
           full += ev.value
           bus.publish(bus.ch.user(opts.userSub), { t: 'agent:chunk', turnId: opts.turnId, value: ev.value })
         } else if (ev.type === 'tool' && ev.phase === 'start' && typeof ev.name === 'string') {
+          // El agente narra en tramos: uno antes de usar una herramienta y otro después.
+          // Sin separarlos quedaban pegados ("…no documentado.El campo correcto es due"),
+          // como si fuera una frase. Cada tramo es un párrafo.
+          if (full && !full.endsWith('\n\n')) {
+            const sep = full.endsWith('\n') ? '\n' : '\n\n'
+            full += sep
+            bus.publish(bus.ch.user(opts.userSub), { t: 'agent:chunk', turnId: opts.turnId, value: sep })
+          }
           // Lo que hace, mientras lo hace: sin esto el drawer se queda mudo justo
           // cuando el agente está moviendo cosas en el tablero.
           bus.publish(bus.ch.user(opts.userSub), { t: 'agent:tool', turnId: opts.turnId, name: ev.name })
