@@ -12,6 +12,7 @@ import { getGoalsFn, linkTaskToGoalFn, unlinkTaskFromGoalFn, getTaskGoalsFn } fr
 import { PriorityBadge, PrioritySelect } from './PriorityBadge'
 import { MemberAvatar } from './MemberAvatar'
 import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
+import { AssigneePicker } from './AssigneePicker'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 type Detail = Awaited<ReturnType<typeof getTaskDetailFn>>
@@ -356,18 +357,11 @@ export function TaskDetailPanel({
               </div>
               <div>
                 <p className="mb-1 text-xs text-muted font-medium">Asignado a</p>
-                <select
-                  value={detail.task.assignee_sub ?? ''}
-                  onChange={(e) => changeAssignee(e.target.value || null)}
-                  className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand w-full"
-                >
-                  <option value="">Sin asignar</option>
-                  {/* El equipo entero, no los miembros del proyecto: si no, solo aparece
-                      quien creó el tablero. */}
-                  {assignables.map((m) => (
-                    <option key={m.sub} value={m.sub}>{m.name}</option>
-                  ))}
-                </select>
+                <AssigneePicker
+                  value={detail.task.assignee_sub ?? null}
+                  members={assignables}
+                  onChange={changeAssignee}
+                />
               </div>
             </div>
 
