@@ -217,7 +217,9 @@ export function AgentDrawer({
     await setProjectAgentFn({ data: { projectId, handle: h } }).catch(() => {})
   }
 
-  const MAX_BYTES = 1_500_000
+  // Ya no viaja dentro del turno (va al storage del workspace), así que el tope es el
+  // del storage, no el del contexto.
+  const MAX_BYTES = 20_000_000
 
   async function addFiles(list: FileList | File[]) {
     const incoming = Array.from(list).filter((f) => f.type.startsWith('image/'))
@@ -226,7 +228,7 @@ export function AgentDrawer({
         // Mejor decirlo que mandar 8MB en base64 por un server-fn.
         setMessages((prev) => [
           ...prev,
-          { id: `e-${Date.now()}`, role: 'agent', content: `"${f.name}" pesa demasiado (máx. 1.5 MB).`, streaming: false, created_tasks: [] },
+          { id: `e-${Date.now()}`, role: 'agent', content: `"${f.name}" pesa demasiado (máx. 20 MB).`, streaming: false, created_tasks: [] },
         ])
         continue
       }

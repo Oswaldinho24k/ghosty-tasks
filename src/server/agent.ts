@@ -78,6 +78,27 @@ export const getAgentHistoryFn = createServerFn({ method: 'GET' })
     }))
   })
 
+/**
+ * Sube cada adjunto y arma sus `parts`. Si el storage no responde, cae a los bytes
+ * inline: mejor un turno más caro que perder la imagen que la persona arrastró.
+ */
+async function buildParts(
+  attachments: Array<{ name?: string; mimeType: string; bytes: string }>
+): Promise<MediaPart[]> {
+  if (!attachments.length) return []
+  const { storeAttachment } = await import('./uploads.server')
+  const out: MediaPart[] = []
+  for (const a of attachments) {
+    const stored = await storeAttachment({ name: a.name ?? 'imagen', mimeType: a.mimeType, bytes: a.bytes })
+    out.push(
+      stored
+        ? { kind: 'file', file: { name: stored.name, mimeType: stored.mimeType, uri: stored.uri } }
+        : { kind: 'file', file: { name: a.name, mimeType: a.mimeType, bytes: a.bytes } }
+    )
+  }
+  return out
+}
+
 function systemPrompt(projectName: string, who: { name: string; handle: string }): string {
   return [
     `Estás dentro de Ghosty Tasks, en el tablero "${projectName}".`,
@@ -96,10 +117,10 @@ function systemPrompt(projectName: string, who: { name: string; handle: string }
   ].join(' ')
 }
 
-// Una imagen arrastrada al drawer viaja INLINE en base64. Tasks no tiene almacenamiento
-// propio y no hace falta: el runtime acepta `bytes` para adjuntos chicos, que es
-// justamente el caso (una captura, un mockup). Los grandes se rechazan en el cliente.
-export type MediaPart = { kind: 'file'; file: { name?: string; mimeType: string; bytes: string } }
+// Una imagen arrastrada al drawer se guarda en el storage del workspace (el de Teams) y
+// al agente le llega la URI, no los bytes: así no se come el contexto del turno y la
+// imagen sigue existiendo después. Ver uploads.server.ts.
+export type MediaPart = { kind: 'file'; file: { name?: string; mimeType: string; uri?: string; bytes?: string } }
 
 async function runAgentTurn(opts: {
   userSub: string
@@ -232,7 +253,7 @@ export const askAgentFn = createServerFn({ method: 'POST' })
       userSub: user.sub,
       userName: user.name,
       who: { name: me?.name ?? user.name, handle: me?.handle ?? '' },
-      parts: (data.attachments ?? []).map((a) => ({ kind: 'file' as const, file: a })),
+      parts: await buildParts(data.attachments ?? []),
       projectId: data.projectId,
       projectName: proj[0]?.name ?? 'este tablero',
       handle: agent.handle,
