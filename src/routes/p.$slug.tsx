@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, notFound, redirect } from '@tanstack/react-router'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Settings, Menu, Plus, Sparkles } from 'lucide-react'
 import { getProjectShellFn, listProjectsFn } from '../server/projects'
 import type { Task, Column, Project } from '../server/projects'
@@ -17,6 +17,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useLiveStream } from '../hooks/useLiveStream'
 import type { WwEvent } from '../server/bus.server'
 import { ProjectContext } from '../utils/projectContext'
+import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
 
 export const Route = createFileRoute('/p/$slug')({
   loader: async ({ params }) => {
@@ -39,7 +40,7 @@ function ProjectShell() {
 
   const [projects, setProjects] = useState(initialProjects)
   const [project, setProject] = useState(initial.project)
-  const [members, setMembers] = useState(initial.members)
+  const [projectMembers, setMembers] = useState(initial.members)
   const [columns, setColumns] = useState(initial.columns)
   const [tasks, setTasks] = useState(initial.tasks)
   const [taskLabels, setTaskLabels] = useState<Record<number, Label[]>>({})
@@ -55,6 +56,19 @@ function ProjectShell() {
   const currentView = typeof window !== 'undefined'
     ? window.location.pathname.split('/').pop() ?? 'board'
     : 'board'
+
+  // Para PINTAR a alguien (avatar del asignado, autor de un comentario) sirve todo el
+  // equipo, no solo los miembros del proyecto: si no, una tarea asignada a alguien que no
+  // está en el tablero salía sin cara.
+  const team = useWorkspaceMembers()
+  const members = useMemo(() => {
+    type M = (typeof projectMembers)[number]
+    const bySub = new Map<string, M>(
+      team.map((t) => [t.sub, { sub: t.sub, name: t.name, avatar: t.avatar, handle: t.handle, role: 'member' } as M])
+    )
+    for (const m of projectMembers) bySub.set(m.sub, { ...bySub.get(m.sub), ...m })
+    return [...bySub.values()]
+  }, [team, projectMembers])
 
   const currentUser = members.find((m) => m.sub === initial.currentSub)
 

@@ -99,33 +99,52 @@ export type WorkspaceMember = {
  * recién agregado al equipo no aparecería y no se le podría asignar una tarea.
  */
 export async function listWorkspaceMembers(): Promise<WorkspaceMember[]> {
-  const roster = await workspaceRoster();
-  if (!roster.length) return [];
-  const subs = roster.map((m) => m.sub);
-  const placeholders = subs.map(() => "?").join(",");
+  const roster = await workspaceRoster().catch(() => []);
+
+  // Perfiles que YA existen en la DB de este workspace: quien tiene fila aquí entró por
+  // Teams, o sea que pertenece de hecho.
   let profiles: Row[] = [];
   try {
-    profiles = await dbq(
-      `SELECT sub, handle, name, email, avatar FROM gc_users WHERE sub IN (${placeholders})`,
-      subs
-    );
+    profiles = await dbq("SELECT sub, handle, name, email, avatar, is_owner FROM gc_users");
   } catch {
-    /* sin tabla todavía (workspace virgen) → todos salen como pendientes */
+    /* workspace virgen */
   }
-  const bySub = new Map(profiles.map((p) => [p.sub ?? "", p]));
-  return roster
-    .map((m) => {
-      const p = bySub.get(m.sub);
-      return {
-        sub: m.sub,
-        handle: (p?.handle as string) ?? "",
-        // Quien todavía no ha entrado a ningún producto no tiene perfil: se muestra
-        // por su correo en vez de como una fila anónima.
-        name: (p?.name as string) || m.email || m.sub.slice(0, 8),
-        email: (p?.email as string) || m.email,
-        avatar: localAvatar(p?.avatar as string),
-        isOwner: m.role === "OWNER",
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+
+  // UNIÓN a propósito. gs es la fuente de verdad de la pertenencia, pero su fila de
+  // Membership se crea best-effort al entrar a Teams: quien se unió antes de eso —o a
+  // quien le falló— no aparece en el roster y quedaba invisible aquí (no se le podía
+  // asignar una tarea ni el agente lo encontraba). Ejemplo real: omac.crw, con perfil en
+  // el workspace y sin membresía en gs.
+  const bySub = new Map<string, WorkspaceMember>();
+  const profileOf = new Map(profiles.map((p) => [p.sub ?? "", p]));
+
+  for (const m of roster) {
+    const p = profileOf.get(m.sub);
+    bySub.set(m.sub, {
+      sub: m.sub,
+      handle: (p?.handle as string) ?? "",
+      // Quien todavía no ha entrado a ningún producto no tiene perfil: se muestra por su
+      // correo en vez de como una fila anónima.
+      name: (p?.name as string) || m.email || m.sub.slice(0, 8),
+      email: (p?.email as string) || m.email,
+      avatar: localAvatar(p?.avatar as string),
+      isOwner: m.role === "OWNER",
+    });
+  }
+
+  for (const p of profiles) {
+    const sub = p.sub ?? "";
+    if (!sub || bySub.has(sub)) continue;
+    bySub.set(sub, {
+      sub,
+      handle: (p.handle as string) ?? "",
+      name: (p.name as string) || sub.slice(0, 8),
+      email: (p.email as string) ?? "",
+      avatar: localAvatar(p.avatar as string),
+      isOwner: Number(p.is_owner) === 1,
+    });
+  }
+
+  return [...bySub.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
+
