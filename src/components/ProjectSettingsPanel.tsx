@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Trash2, Users, UserMinus, Bot, ChevronDown } from 'lucide-react'
+import { X, Trash2, Users, UserMinus, Bot, ChevronDown, Search } from 'lucide-react'
 import { motion } from 'motion/react'
 import { registerModalEsc } from '../utils/modal-esc'
 import { Rocket, Layers, Target, Palette } from 'lucide-react'
@@ -53,7 +53,13 @@ export function ProjectSettingsPanel({
   const [removing, setRemoving] = useState<string | null>(null)
   const [membersOpen, setMembersOpen] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [memberQuery, setMemberQuery] = useState('')
   const panelRef = useRef<HTMLDivElement>(null)
+
+  const q = memberQuery.trim().toLowerCase()
+  const shownMembers = q
+    ? members.filter((m) => `${m.name} @${m.handle}`.toLowerCase().includes(q))
+    : members
 
   // Esc y clic fuera cierran, como el resto de paneles. El engrane queda exento porque
   // ya alterna: si no, el clic cerraría y el toggle volvería a abrir.
@@ -106,6 +112,9 @@ export function ProjectSettingsPanel({
 
   return (
     <motion.div
+      // Sin este ref el `contains` del clic-fuera era siempre falso y CUALQUIER clic
+      // dentro del panel lo cerraba.
+      ref={panelRef}
       initial={{ x: '100%', opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: '100%', opacity: 0 }}
@@ -202,8 +211,25 @@ export function ProjectSettingsPanel({
         {/* Members */}
         <section>
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Miembros ({members.length})</p>
+
+          {/* Con nueve ya cuesta encontrar a alguien; con treinta es scroll a ciegas. */}
+          {members.length > 6 && (
+            <div className="relative mb-2">
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                value={memberQuery}
+                onChange={(e) => setMemberQuery(e.target.value)}
+                placeholder="Buscar por nombre o @handle"
+                className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 text-sm text-ink outline-none transition-colors placeholder:text-muted/60 focus:border-brand"
+              />
+            </div>
+          )}
+
           <div className="space-y-1">
-            {members.map((m) => (
+            {shownMembers.length === 0 && (
+              <p className="py-4 text-center text-xs text-muted">Nadie con ese nombre.</p>
+            )}
+            {shownMembers.map((m) => (
               <div key={m.sub} className="group flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-surface-2">
                 <MemberAvatar name={m.name} avatar={m.avatar} size={28} />
                 <div className="min-w-0 flex-1">
