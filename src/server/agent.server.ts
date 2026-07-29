@@ -101,12 +101,14 @@ async function runAgentTurn({
   message,
   turnId,
   ctx,
+  signal,
 }: {
   userSub: string
   projectId: number
   message: string
   turnId: string
   ctx: ProjectCtx
+  signal: AbortSignal
 }) {
   const bus = await import('./bus.server')
   const fleetId = process.env.EASYBITS_FLEET_ID
@@ -126,6 +128,7 @@ async function runAgentTurn({
   try {
     res = await fetch(`${FLEET_BASE}/api/v2/fleet-agents/${fleetId}/message-stream`, {
       method: 'POST',
+      signal,
       headers: {
         Authorization: `Bearer ${fleetToken}`,
         'Content-Type': 'application/json',
@@ -137,7 +140,8 @@ async function runAgentTurn({
         appendSystemPrompt: buildSystemPrompt(ctx),
       }),
     })
-  } catch {
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') return
     bus.publish(bus.ch.user(userSub), {
       t: 'agent:done',
       turnId,
@@ -162,22 +166,27 @@ async function runAgentTurn({
   let buf = ''
   let fullText = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      try {
-        const ev = JSON.parse(line.slice(6))
-        if (ev.type === 'chunk' && typeof ev.value === 'string') {
-          fullText += ev.value
-          bus.publish(bus.ch.user(userSub), { t: 'agent:chunk', turnId, value: ev.value })
-        }
-      } catch {}
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const ev = JSON.parse(line.slice(6))
+          if (ev.type === 'chunk' && typeof ev.value === 'string') {
+            fullText += ev.value
+            bus.publish(bus.ch.user(userSub), { t: 'agent:chunk', turnId, value: ev.value })
+          }
+        } catch {}
+      }
     }
+  } catch (e) {
+    if ((e as Error).name !== 'AbortError') throw e
+    // AbortError: stopped intentionally — emit what we have so far
   }
 
   // Create tasks the agent requested
@@ -222,7 +231,7 @@ async function runAgentTurn({
   bus.publish(bus.ch.user(userSub), {
     t: 'agent:done',
     turnId,
-    value: fullText,
+    value: fullText || '(detenido)',
     created_tasks: created,
   })
 }
@@ -238,14 +247,46 @@ export const askAgentFn = createServerFn({ method: 'POST' })
 
     const ctx = await buildProjectContext(data.projectId, user.sub)
 
-    // Fire and forget — SSE chunks arrive via /api/stream
+    const turns = await import('./turns.server')
+    const bus = await import('./bus.server')
+
+    const controller = new AbortController()
+
+    // Announce turn state via user's personal SSE channel
+    const announce = (update: { turnId: string; state: 'running' | 'stopped'; startedAt: number }) =>
+      bus.publish(bus.ch.user(user.sub), { t: 'agent:turn', ...update })
+
+    // Register BEFORE firing so the stop button appears immediately
+    turns.registerTurn({
+      turnId: data.turnId,
+      invokerSub: user.sub,
+      controller,
+      announce,
+    })
+
     runAgentTurn({
       userSub: user.sub,
       projectId: data.projectId,
       message: data.message,
       turnId: data.turnId,
       ctx,
+      signal: controller.signal,
+    }).finally(() => {
+      turns.finishTurn(data.turnId)
     }).catch(() => {})
 
+    return { ok: true }
+  })
+
+export const stopTurnFn = createServerFn({ method: 'POST' })
+  .validator((d: { turnId: string }) => d)
+  .handler(async ({ data }) => {
+    const { useSession } = await import('@tanstack/react-start/server')
+    const { sessionConfig } = await import('./session.server')
+    const s = await useSession<{ user?: { sub: string } }>(sessionConfig())
+    const user = s.data.user
+    if (!user) throw new Error('unauthorized')
+    const turns = await import('./turns.server')
+    turns.stopTurn(data.turnId, user.sub)
     return { ok: true }
   })
