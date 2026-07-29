@@ -4,6 +4,7 @@ import { MemberAvatar } from './MemberAvatar'
 import { CheckSquare, Calendar } from 'lucide-react'
 import { taskRef } from '../utils/taskRef'
 import { useProject } from '../utils/projectContext'
+import { priorityColor } from '../utils/priority'
 
 type Member = { sub: string; name: string; avatar: string }
 
@@ -123,11 +124,6 @@ export function TaskCard({
   )
 }
 
-function priorityColor(p: string): string {
-  // Alta y media eran naranja y amarillo: a este tamaño (una franja de 4px, un punto de
-  // 8px) se confunden. Se separan por TONO, no por matiz: rojo, naranja, azul, gris.
-  return { urgent: '#ef4444', high: '#f97316', medium: '#3b82f6', low: '#94a3b8' }[p] ?? 'transparent'
-}
 
 function fmtDate(d: Date): string {
   return d.toLocaleDateString('es', { month: 'short', day: 'numeric' })

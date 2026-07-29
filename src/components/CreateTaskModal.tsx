@@ -6,13 +6,8 @@ import { createTaskFn } from '../server/tasks'
 import { registerModalEsc } from '../utils/modal-esc'
 import { MemberAvatar } from './MemberAvatar'
 import type { Column, Task } from '../server/projects'
+import { PRIORITIES as PRIORITY_OPTIONS } from '../utils/priority'
 
-const PRIORITY_OPTIONS = [
-  { value: 'urgent', label: 'Urgente', color: '#ef4444' },
-  { value: 'high', label: 'Alta', color: '#f97316' },
-  { value: 'medium', label: 'Media', color: '#3b82f6' },
-  { value: 'low', label: 'Baja', color: '#94a3b8' },
-]
 
 export function CreateTaskModal({
   open,

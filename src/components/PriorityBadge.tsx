@@ -1,20 +1,24 @@
+import { PRIORITIES, priorityColor, priorityLabel } from '../utils/priority';
+
 type Priority = string | null;
 
-const PRIORITY_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
-  urgent: { label: 'Urgente', color: 'text-red-500', dot: 'bg-red-500' },
-  high:   { label: 'Alta',    color: 'text-orange-500', dot: 'bg-orange-500' },
-  medium: { label: 'Media',   color: 'text-yellow-500', dot: 'bg-yellow-400' },
-  low:    { label: 'Baja',    color: 'text-blue-400', dot: 'bg-blue-400' },
+// El punto de color del <select> nativo no se puede estilar: se aproxima con emoji.
+const EMOJI: Record<string, string> = {
+  urgent: '🔴',
+  high: '🟠',
+  medium: '🔵',
+  low: '⚪',
 };
 
 export function PriorityBadge({ priority, showLabel = false }: { priority: Priority; showLabel?: boolean }) {
   if (!priority) return null;
-  const cfg = PRIORITY_CONFIG[priority];
-  if (!cfg) return null;
+  const label = priorityLabel(priority);
+  if (!label) return null;
+  const color = priorityColor(priority);
   return (
-    <span className={`inline-flex items-center gap-1 text-xs ${cfg.color}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-      {showLabel && cfg.label}
+    <span className="inline-flex items-center gap-1 text-xs" style={{ color }}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+      {showLabel && label}
     </span>
   );
 }
@@ -27,10 +31,13 @@ export function PrioritySelect({ value, onChange }: { value: string | null; onCh
       className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand"
     >
       <option value="">Sin prioridad</option>
-      <option value="urgent">🔴 Urgente</option>
-      <option value="high">🟠 Alta</option>
-      <option value="medium">🟡 Media</option>
-      <option value="low">🔵 Baja</option>
+      {/* Los emojis decían otro color que la franja de la tarjeta (🟡 media, 🔵 baja).
+          Salen de la misma lista que el resto para que no vuelvan a divergir. */}
+      {PRIORITIES.map((p) => (
+        <option key={p.value} value={p.value}>
+          {EMOJI[p.value]} {p.label}
+        </option>
+      ))}
     </select>
   );
 }

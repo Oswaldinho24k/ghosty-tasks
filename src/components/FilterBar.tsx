@@ -1,5 +1,6 @@
 import { Search, X } from 'lucide-react'
 import { MemberAvatar } from './MemberAvatar'
+import { PRIORITIES as PRIORITY_OPTIONS } from '../utils/priority'
 
 export type Filters = {
   q: string
@@ -9,12 +10,6 @@ export type Filters = {
 
 export const EMPTY_FILTERS: Filters = { q: '', priorities: [], assignees: [] }
 
-const PRIORITY_OPTIONS = [
-  { value: 'urgent', label: 'Urgente', color: '#ef4444' },
-  { value: 'high', label: 'Alta', color: '#f97316' },
-  { value: 'medium', label: 'Media', color: '#3b82f6' },
-  { value: 'low', label: 'Baja', color: '#94a3b8' },
-]
 
 export function applyFilters<T extends { title: string; priority?: string | null; assignee_sub?: string | null; parent_id?: number | null }>(
   tasks: T[],

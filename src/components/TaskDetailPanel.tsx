@@ -364,16 +364,16 @@ export function TaskDetailPanel({
     <div className="fixed inset-x-0 bottom-0 top-14 z-20" onClick={onClose} />
     <motion.div
       initial={{ x: '100%', opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
       exit={{ x: '100%', opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       // Detrás del chat del agente, y recorrido a la izquierda cuando está abierto: así
       // se ven los dos y el chat manda (es donde estás escribiendo).
       // Arranca DEBAJO de la barra superior: si la tapa, abrir una tarea te deja sin
       // "Nueva tarea" ni botón del agente hasta cerrarla.
-      className={`fixed bottom-0 top-14 z-30 flex w-full max-w-lg flex-col border-l border-t border-border bg-surface shadow-xl ${
-        agentOpen ? 'right-0 sm:right-[24rem]' : 'right-0'
-      }`}
+      // El desplazamiento al abrir el chat va animado con el mismo muelle que la entrada
+      // del panel: si no, la tarea salta de golpe y parece un fallo de layout.
+      animate={{ x: 0, opacity: 1, right: agentOpen && typeof window !== 'undefined' && window.innerWidth >= 640 ? '24rem' : 0 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+      className="fixed bottom-0 top-14 z-30 flex w-full max-w-lg flex-col border-l border-t border-border bg-surface shadow-xl"
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
