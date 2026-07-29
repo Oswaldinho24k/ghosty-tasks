@@ -172,8 +172,9 @@ const createTask = defineAction({
       type: "string",
       description: 'A quién se asigna: nombre, @handle, correo — o "yo" para quien te está hablando',
     },
+    labels: { type: "string[]", description: "Etiquetas a ponerle" },
   },
-  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee?: string }) {
+  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee?: string; labels?: string[] }) {
     let columnId: number;
     if (input.column) {
       columnId = (await columnByName(ctx.projectId, input.column)).id;
@@ -183,12 +184,14 @@ const createTask = defineAction({
       columnId = num(first[0].id);
     }
     let assigneeSub: string | undefined;
+    let assigneeName: string | undefined;
     if (input.assignee) {
       const who = await memberBy(ctx, input.assignee);
       if ("candidates" in who) {
         return { needs: "disambiguation" as const, reason: `¿a cuál te refieres?`, candidates: who.candidates };
       }
       assigneeSub = who.sub;
+      assigneeName = who.name;
     }
     const task = await ops.createTask(ctx.sub, {
       project_id: ctx.projectId,
@@ -198,7 +201,18 @@ const createTask = defineAction({
       priority: input.priority,
       assignee_sub: assigneeSub,
     });
-    return { id: task.id, title: task.title, column_id: task.column_id };
+    if (input.labels?.length) {
+      await setLabelsOn(ctx, task.id, input.labels, []);
+    }
+    // Se devuelve a QUIÉN quedó asignada (no lo que se pidió): si el agente cuenta que la
+    // asignó, que sea porque el tablero lo dice.
+    return {
+      id: task.id,
+      title: task.title,
+      column_id: task.column_id,
+      assigned_to: assigneeName ?? null,
+      labels: input.labels ?? [],
+    };
   },
 });
 
@@ -255,6 +269,29 @@ const updateTask = defineAction({
   },
 });
 
+/** Añade/quita etiquetas conservando las que ya tiene y reusando su color del tablero. */
+async function setLabelsOn(ctx: { sub: string; projectId: number }, taskId: number, add: string[], remove: string[]) {
+  const current = await dbq("SELECT label, color FROM task_labels WHERE task_id = ?", [taskId]);
+  const known = await dbq(
+    `SELECT DISTINCT l.label, l.color FROM task_labels l
+       JOIN task_tasks t ON t.id = l.task_id WHERE t.project_id = ?`,
+    [ctx.projectId]
+  );
+  const colorOf = new Map(known.map((k) => [(k.label ?? "").toLowerCase(), k.color ?? "#6b7280"]));
+  const out = new Map(
+    current.map((c) => [(c.label ?? "").toLowerCase(), { label: c.label ?? "", color: c.color ?? "#6b7280" }])
+  );
+  for (const l of remove) out.delete(l.trim().toLowerCase());
+  for (const l of add) {
+    const label = l.trim();
+    if (!label) continue;
+    out.set(label.toLowerCase(), { label, color: colorOf.get(label.toLowerCase()) ?? "#6b7280" });
+  }
+  const labels = [...out.values()];
+  await ops.setTaskLabels(ctx.sub, { task_id: taskId, labels });
+  return labels.map((l) => l.label);
+}
+
 const setLabels = defineAction({
   name: "set_labels",
   description: "Añade o quita etiquetas de una tarea. Las que ya tiene se conservan salvo que las quites.",
@@ -265,26 +302,8 @@ const setLabels = defineAction({
   },
   async run(ctx, input: { id: number; add?: string[]; remove?: string[] }) {
     await taskOf(ctx.projectId, input.id);
-    const current = await dbq("SELECT label, color FROM task_labels WHERE task_id = ?", [input.id]);
-    // Reusa el color que esa etiqueta ya tenga en el tablero: dos "producción" de
-    // colores distintos se ven como dos etiquetas diferentes.
-    const known = await dbq(
-      `SELECT DISTINCT l.label, l.color FROM task_labels l
-         JOIN task_tasks t ON t.id = l.task_id WHERE t.project_id = ?`,
-      [ctx.projectId]
-    );
-    const colorOf = new Map(known.map((k) => [(k.label ?? "").toLowerCase(), k.color ?? "#6b7280"]));
-
-    const out = new Map(current.map((c) => [(c.label ?? "").toLowerCase(), { label: c.label ?? "", color: c.color ?? "#6b7280" }]));
-    for (const l of input.remove ?? []) out.delete(l.trim().toLowerCase());
-    for (const l of input.add ?? []) {
-      const label = l.trim();
-      if (!label) continue;
-      out.set(label.toLowerCase(), { label, color: colorOf.get(label.toLowerCase()) ?? "#6b7280" });
-    }
-    const labels = [...out.values()];
-    await ops.setTaskLabels(ctx.sub, { task_id: input.id, labels });
-    return { id: input.id, labels: labels.map((l) => l.label) };
+    const labels = await setLabelsOn(ctx, input.id, input.add ?? [], input.remove ?? []);
+    return { id: input.id, labels };
   },
 });
 
@@ -340,6 +359,28 @@ const deleteTask = defineAction({
   },
 });
 
+// Sumar a alguien del workspace al tablero. Es una capacidad EXCLUSIVA del agente: la
+// interfaz solo ofrece a los que ya participan, para que la lista no sea el workspace
+// entero. Pedírselo al agente ("mete a Oscar") es el camino explícito; asignarle una
+// tarea es el implícito.
+const addMember = defineAction({
+  name: "add_member",
+  description:
+    "Suma a alguien del equipo a este tablero para que pueda trabajarlo. Úsala cuando te pidan agregar a una persona, o antes de asignarle algo si no participa todavía.",
+  schema: {
+    who: { type: "string", description: 'Nombre, @handle, correo o "yo"', required: true },
+  },
+  async run(ctx, input: { who: string }) {
+    const person = await memberBy(ctx, input.who);
+    if ("candidates" in person) {
+      return { needs: "disambiguation" as const, reason: `¿a cuál te refieres?`, candidates: person.candidates };
+    }
+    const { joinByAssignment } = await import("../ops/access");
+    await joinByAssignment(ctx.projectId, person.sub);
+    return { ok: true, added: person.name };
+  },
+});
+
 export const ACTIONS: Action<never, unknown>[] = [
   listBoard,
   findTasks,
@@ -349,6 +390,7 @@ export const ACTIONS: Action<never, unknown>[] = [
   setLabels,
   commentTask,
   addChecklistItem,
+  addMember,
   deleteTask,
 ] as unknown as Action<never, unknown>[];
 

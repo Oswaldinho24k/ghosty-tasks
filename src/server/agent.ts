@@ -109,7 +109,9 @@ function systemPrompt(projectName: string, who: { name: string; handle: string }
     // por el módulo `connectors` del SDK. Sin esta línea el agente no las busca y
     // responde que no puede tocar el tablero.
     `Tus herramientas para ESTE tablero están en /opt/gs-sdk/connectors.mjs: importa ese módulo, llama a list() para ver sus firmas y a run(name, args) para ejecutarlas.`,
-    `Son: list_board, find_tasks, create_task, move_task, update_task, set_labels, comment_task, add_checklist_item, delete_task.`,
+    `Son: list_board, find_tasks, create_task, move_task, update_task, set_labels, comment_task, add_checklist_item, add_member, delete_task.`,
+    `Puedes asignarle una tarea a cualquiera del equipo aunque no participe en el tablero: al asignarla queda dentro. También puedes sumar a alguien con add_member. La interfaz no permite eso, tú sí.`,
+    `Confía en lo que te devuelve la herramienta, no en lo que pediste: si la respuesta no trae "assigned_to", NO digas que quedó asignada.`,
     `Úsalas en vez de describir lo que harías: si te piden mover una tarea, muévela.`,
     `Antes de actuar sobre "la tarea de alguien" o un nombre de columna, resuélvelo con find_tasks o list_board — no inventes ids.`,
     `Si algo es ambiguo (varias tareas coinciden, una etiqueta que no existe), PREGUNTA en vez de elegir por tu cuenta.`,

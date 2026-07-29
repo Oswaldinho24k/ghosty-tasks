@@ -4,7 +4,6 @@ import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { createTaskFn } from '../server/tasks'
 import { registerModalEsc } from '../utils/modal-esc'
-import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
 import { MemberAvatar } from './MemberAvatar'
 import type { Column, Task } from '../server/projects'
 
@@ -20,21 +19,25 @@ export function CreateTaskModal({
   onClose,
   projectId,
   columns,
+  members,
   onCreated,
 }: {
   open: boolean
   onClose: () => void
   projectId: number
   columns: Column[]
+  /** Los del tablero: sumar a alguien de fuera es cosa del agente. */
+  members: Array<{ sub: string; name: string; avatar: string }>
   onCreated: (task: Task) => void
 }) {
+  const team = members
   const [title, setTitle] = useState('')
   const [columnId, setColumnId] = useState<number>(0)
   const [priority, setPriority] = useState<string | null>(null)
   const [assignee, setAssignee] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const team = useWorkspaceMembers(open)
+
 
   useEffect(() => {
     if (open) {

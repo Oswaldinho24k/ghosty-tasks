@@ -69,6 +69,18 @@ export class ActionInputError extends Error {}
 export function parseInput(schema: Schema, raw: unknown): Record<string, unknown> {
   const input = (raw ?? {}) as Record<string, unknown>;
   const out: Record<string, unknown> = {};
+
+  // Una clave que no existe NO se ignora: se avisa. Ignorarla en silencio es cómo el
+  // agente creó una tarea "asignada a oscar" que quedó sin asignar — mandó `assignee_sub`
+  // (un nombre viejo del parámetro), el validador lo tiró, y el modelo reportó éxito
+  // porque nadie le dijo lo contrario.
+  const unknown = Object.keys(input).filter((k) => !(k in schema));
+  if (unknown.length) {
+    throw new ActionInputError(
+      `no existe${unknown.length > 1 ? "n" : ""} ${unknown.map((k) => `"${k}"`).join(", ")}. ` +
+        `Los campos de esta herramienta son: ${Object.keys(schema).join(", ")}`
+    );
+  }
   for (const [key, f] of Object.entries(schema)) {
     const v = input[key];
     if (v === undefined || v === null || v === "") {

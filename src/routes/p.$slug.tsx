@@ -232,8 +232,10 @@ function ProjectShell() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Quién trabaja ESTE tablero, no el workspace entero: si no, la fila de caras
+                dice lo mismo en todos los proyectos y deja de informar. */}
             <div className="hidden sm:flex -space-x-1">
-              {members.slice(0, 5).map((m) => (
+              {projectMembers.slice(0, 5).map((m) => (
                 <img
                   key={m.sub}
                   src={m.avatar || `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(m.name)}`}
@@ -310,13 +312,16 @@ function ProjectShell() {
             key={selectedTaskId}
             taskId={selectedTaskId}
             projectId={initial.project.id}
-            members={members}
+            members={projectMembers}
             onClose={() => setSelectedTaskId(null)}
             onDeleted={(id) => {
               setTasks((prev) => prev.filter((t) => t.id !== id))
               setTaskLabels((prev) => { const n = { ...prev }; delete n[id]; return n })
             }}
             onLabelsChange={(taskId, labels) => setTaskLabels((prev) => ({ ...prev, [taskId]: labels }))}
+            onTaskChanged={(id, patch) =>
+              setTasks((prev) => prev.map((t) => (t.id === id ? ({ ...t, ...patch } as Task) : t)))
+            }
           />
         )}
         {settingsOpen && (
@@ -354,6 +359,7 @@ function ProjectShell() {
 
       {/* Create task modal (global) */}
       <CreateTaskModal
+        members={projectMembers}
         open={createTaskOpen}
         onClose={() => setCreateTaskOpen(false)}
         projectId={initial.project.id}

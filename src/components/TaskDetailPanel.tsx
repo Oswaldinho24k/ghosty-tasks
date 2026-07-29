@@ -33,6 +33,7 @@ export function TaskDetailPanel({
   onClose,
   onDeleted,
   onLabelsChange,
+  onTaskChanged,
 }: {
   taskId: number
   projectId: number
@@ -40,6 +41,12 @@ export function TaskDetailPanel({
   onClose: () => void
   onDeleted?: (id: number) => void
   onLabelsChange?: (taskId: number, labels: Label[]) => void
+  /**
+   * Lo que cambió, para la tarjeta del tablero. El panel ya lo sabe: hacerlo esperar al
+   * evento SSE dejaba la tarjeta vieja hasta recargar (p. ej. te asignabas una tarea y tu
+   * avatar no aparecía). El evento sigue llegando para los DEMÁS.
+   */
+  onTaskChanged?: (taskId: number, patch: Record<string, unknown>) => void
 }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -114,6 +121,7 @@ export function TaskDetailPanel({
     if (titleDraft === detail.task.title) return
     await updateTaskFn({ data: { id: taskId, project_id: projectId, title: titleDraft } })
     setDetail((d) => d ? { ...d, task: { ...d.task, title: titleDraft } } : d)
+    onTaskChanged?.(taskId, { title: titleDraft })
   }
 
   async function toggleDone() {
@@ -121,18 +129,21 @@ export function TaskDetailPanel({
     const newStatus = detail.task.status === 'done' ? 'open' : 'done'
     await updateTaskFn({ data: { id: taskId, project_id: projectId, status: newStatus } })
     setDetail((d) => d ? { ...d, task: { ...d.task, status: newStatus } } : d)
+    onTaskChanged?.(taskId, { status: newStatus })
   }
 
   async function changePriority(priority: string | null) {
     if (!detail) return
     await updateTaskFn({ data: { id: taskId, project_id: projectId, priority } })
     setDetail((d) => d ? { ...d, task: { ...d.task, priority } } : d)
+    onTaskChanged?.(taskId, { priority })
   }
 
   async function changeAssignee(sub: string | null) {
     if (!detail) return
     await updateTaskFn({ data: { id: taskId, project_id: projectId, assignee_sub: sub } })
     setDetail((d) => d ? { ...d, task: { ...d.task, assignee_sub: sub } } : d)
+    onTaskChanged?.(taskId, { assignee_sub: sub })
   }
 
   async function addItem() {
@@ -234,6 +245,7 @@ export function TaskDetailPanel({
     const ts = dateStr ? Math.floor(new Date(dateStr + 'T00:00:00').getTime() / 1000) : null
     await updateTaskFn({ data: { id: taskId, project_id: projectId, due_date: ts } })
     setDetail((d) => d ? { ...d, task: { ...d.task, due_date: ts } } : d)
+    onTaskChanged?.(taskId, { due_date: ts })
   }
 
   // --- Subtasks ---
@@ -277,10 +289,12 @@ export function TaskDetailPanel({
     setTaskGoals((prev) => prev.filter((g) => g.id !== goalId))
   }
 
-  // Roster del workspace: es a quien se puede asignar, y también quien puede aparecer
-  // como autor de un comentario o de una actividad aunque no esté en el proyecto.
+  // A quién se puede asignar DESDE LA UI: los del tablero. Traer a alguien de fuera es
+  // capacidad del agente ("mete a Oscar"), para que esta lista no sea el workspace entero.
+  const assignables = members
+  // Para PINTAR (autor de un comentario, avatar de una actividad) sí hace falta el equipo
+  // completo: alguien que ya no participa no debe quedar sin cara.
   const team = useWorkspaceMembers(taskId != null)
-  const assignables = team.length ? team : members
   const everyone = team.length ? [...team, ...members.filter((m) => !team.some((t) => t.sub === m.sub))] : members
   const assignee = detail ? everyone.find((m) => m.sub === detail.task.assignee_sub) : null
   const doneCount = detail?.checklist.filter((c) => c.done).length ?? 0
