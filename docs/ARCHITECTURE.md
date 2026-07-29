@@ -291,3 +291,27 @@ EASYBITS_FLEET_TOKEN=
 | Realtime | Bus in-process (mismo patrón) | Bus in-process |
 | SSE keys | `gt.*` en localStorage | `gt.*` en localStorage |
 | Presets | 12 | 12 (idénticos) |
+
+
+## El agente del tablero
+
+Ver el README para el resumen. Los detalles que cuesta descubrir:
+
+- **Transporte**: `POST {runtimeBase}/api/v2/fleet-agents/{fleet_id}/message-stream` con
+  firma de partner (`x-ghosty-ts` / `x-ghosty-ws` / `x-ghosty-sig`,
+  `HMAC(secret, ts.namespace.rawBody)`). La base sale de `gc_config.agent_runtime_url` y
+  si no, del env `GHOSTY_RUNTIME_URL`.
+- **Memoria**: `groupId = ws-<ns>-ghosty-tasks-<handle>-p<projectId>` — por agente y por
+  tablero, separada a propósito de la conversación del canal en Teams.
+- **Tools**: `POST /api/agent/tools` habla el MISMO contrato que los conectores de Teams
+  (`{action:"list"}` / `{action:"run", name, args}` + Bearer). Eso es deliberado: el
+  worker ya trae un módulo que lo consume, así que las herramientas existen sin tocar el
+  runtime ni rehornear la caja, y el schema se descubre en caliente. No es MCP.
+- ⚠️ El `appendSystemPrompt` DEBE decirle dónde están (`/opt/gs-sdk/connectors.mjs`,
+  `list()` / `run()`). Sin esa línea el agente no las busca y responde que no puede tocar
+  el tablero.
+- ⚠️ `toolToken` y `toolsUrl` viajan **siempre juntos**: el worker firma su sesión con las
+  CLAVES del env del turno, así que un set que oscila le recicla la sesión y le tira el
+  warm en cada mensaje.
+- **Historial**: `task_ghosty_messages`, con `task_id` NEGATIVO = conversación del tablero
+  (los ids de tarea son positivos) y `sender_name` = handle del agente.
