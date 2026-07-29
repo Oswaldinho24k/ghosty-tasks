@@ -11,6 +11,7 @@ import type { Label } from '../server/labels'
 import { getGoalsFn, linkTaskToGoalFn, unlinkTaskFromGoalFn, getTaskGoalsFn } from '../server/goals'
 import { PriorityBadge, PrioritySelect } from './PriorityBadge'
 import { MemberAvatar } from './MemberAvatar'
+import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
 
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 type Detail = Awaited<ReturnType<typeof getTaskDetailFn>>
@@ -275,7 +276,12 @@ export function TaskDetailPanel({
     setTaskGoals((prev) => prev.filter((g) => g.id !== goalId))
   }
 
-  const assignee = detail ? members.find((m) => m.sub === detail.task.assignee_sub) : null
+  // Roster del workspace: es a quien se puede asignar, y también quien puede aparecer
+  // como autor de un comentario o de una actividad aunque no esté en el proyecto.
+  const team = useWorkspaceMembers(taskId != null)
+  const assignables = team.length ? team : members
+  const everyone = team.length ? [...team, ...members.filter((m) => !team.some((t) => t.sub === m.sub))] : members
+  const assignee = detail ? everyone.find((m) => m.sub === detail.task.assignee_sub) : null
   const doneCount = detail?.checklist.filter((c) => c.done).length ?? 0
   const totalCount = detail?.checklist.length ?? 0
   const linkedGoalIds = new Set(taskGoals.map((g) => g.id))
@@ -356,7 +362,9 @@ export function TaskDetailPanel({
                   className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-brand w-full"
                 >
                   <option value="">Sin asignar</option>
-                  {members.map((m) => (
+                  {/* El equipo entero, no los miembros del proyecto: si no, solo aparece
+                      quien creó el tablero. */}
+                  {assignables.map((m) => (
                     <option key={m.sub} value={m.sub}>{m.name}</option>
                   ))}
                 </select>
@@ -675,7 +683,7 @@ export function TaskDetailPanel({
               </p>
               <div className="space-y-3">
                 {comments.map((c) => {
-                  const author = members.find((m) => m.sub === c.sender_sub)
+                  const author = everyone.find((m) => m.sub === c.sender_sub)
                   return (
                     <div key={c.id} className="group flex gap-2">
                       <MemberAvatar name={c.sender_name} avatar={c.avatar ?? author?.avatar ?? ''} size={24} />
@@ -757,7 +765,7 @@ export function TaskDetailPanel({
                 <p className="mb-2 text-xs font-medium text-muted">Actividad</p>
                 <div className="space-y-1">
                   {detail.activities.map((a) => {
-                    const m = members.find((mb) => mb.sub === a.user_sub)
+                    const m = everyone.find((mb) => mb.sub === a.user_sub)
                     return (
                       <div key={a.id} className="flex items-start gap-2 text-xs text-muted">
                         {m && <MemberAvatar name={m.name} avatar={m.avatar} size={16} />}
