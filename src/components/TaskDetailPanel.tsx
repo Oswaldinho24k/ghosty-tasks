@@ -76,7 +76,9 @@ export function TaskDetailPanel({
   const [titleDraft, setTitleDraft] = useState('')
   const [newItem, setNewItem] = useState('')
   const [addingItem, setAddingItem] = useState(false)
-  const [descExpanded, setDescExpanded] = useState(false)
+  // Abierta por defecto: la descripción es el contenido de la tarea, no un detalle
+  // secundario — esconderla obligaba a un clic para leer lo que se vino a leer.
+  const [descExpanded, setDescExpanded] = useState(true)
   const titleRef = useRef<HTMLInputElement>(null)
 
   // Comments
