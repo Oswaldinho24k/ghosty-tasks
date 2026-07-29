@@ -232,19 +232,8 @@ function ProjectShell() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Quién trabaja ESTE tablero, no el workspace entero: si no, la fila de caras
-                dice lo mismo en todos los proyectos y deja de informar. */}
-            <div className="hidden sm:flex -space-x-1">
-              {projectMembers.slice(0, 5).map((m) => (
-                <img
-                  key={m.sub}
-                  src={m.avatar || `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(m.name)}`}
-                  alt={m.name}
-                  title={m.name}
-                  className="h-7 w-7 rounded-full border-2 border-surface object-cover"
-                />
-              ))}
-            </div>
+            {/* Sin fila de caras aquí: el filtro por persona, justo debajo, ya muestra a
+                los mismos — dos veces lo mismo en la misma pantalla. */}
             {canEdit && (
               <button
                 onClick={() => setCreateTaskOpen(true)}
