@@ -167,6 +167,19 @@ export function AgentDrawer({
           })
           .slice(0, 6)
 
+  // Crece con lo que escribes hasta un tope y luego hace scroll — como Slack o ChatGPT.
+  // Un textarea no lo hace solo: hay que medir su contenido en cada cambio.
+  const MAX_INPUT_PX = 160
+  function autoGrow() {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_PX)}px`
+    el.style.overflowY = el.scrollHeight > MAX_INPUT_PX ? 'auto' : 'hidden'
+  }
+
+  useEffect(autoGrow, [input])
+
   function onInputChange(v: string) {
     setInput(v)
     // El "#" abierto más cercano al cursor manda; un espacio lo cierra.
@@ -488,12 +501,12 @@ export function AgentDrawer({
                 {msg.role === 'agent' && msg.streaming && !stripJsonBlock(msg.content).trim() ? (
                   // Tres puntitos mientras no llega nada: un cursor parpadeando sobre una
                   // burbuja vacía parece que se colgó.
-                  <span className="flex items-center gap-1 py-1">
+                  <span className="flex items-center gap-1.5 py-1">
                     {[0, 1, 2].map((i) => (
                       <span
                         key={i}
-                        className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted"
-                        style={{ animationDelay: `${i * 120}ms` }}
+                        className="gt-thinking-dot"
+                        style={{ animationDelay: `${i * 160}ms` }}
                       />
                     ))}
                   </span>
@@ -508,9 +521,7 @@ export function AgentDrawer({
                 ) : (
                   msg.content
                 )}
-                {msg.streaming && (
-                  <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse rounded-full bg-current opacity-70" />
-                )}
+
               </div>
               {msg.created_tasks.length > 0 && (
                 <div className="mt-2 flex flex-col gap-1">
@@ -612,7 +623,7 @@ export function AgentDrawer({
             rows={1}
             disabled={busy}
             className="flex-1 resize-none bg-transparent text-sm text-ink outline-none placeholder:text-muted disabled:opacity-50"
-            style={{ maxHeight: '120px', overflowY: 'auto' }}
+            style={{ maxHeight: `${MAX_INPUT_PX}px` }}
           />
           <button
             onClick={send}
