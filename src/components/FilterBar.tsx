@@ -100,9 +100,11 @@ export function FilterBar({
                 key={m.sub}
                 onClick={() => toggleAssignee(m.sub)}
                 title={m.name}
-                className={`rounded-full border-2 transition-all ${active ? 'scale-110 border-brand' : 'border-surface hover:border-brand/50'}`}
+                className={`flex rounded-full border-2 transition-all ${
+                  active ? 'scale-110 border-brand' : 'border-surface hover:border-brand/50'
+                }`}
               >
-                <MemberAvatar name={m.name} avatar={m.avatar} size={22} />
+                <MemberAvatar name={m.name} avatar={m.avatar} size={22} ring={false} />
               </button>
             )
           })}
