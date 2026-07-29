@@ -56,6 +56,8 @@ function ProjectShell() {
   // añadirle checklist o comentarios mientras lo tienes abierto, y antes se quedaba
   // congelado hasta cerrarlo y volverlo a abrir.
   const [detailRefresh, setDetailRefresh] = useState(0)
+  // Quién está conectado ahora mismo. El bus ya lo emitía y nadie lo escuchaba.
+  const [online, setOnline] = useState<string[]>([])
   const selectedTaskRef = useRef<number | null>(null)
   selectedTaskRef.current = selectedTaskId
   const agentEventCallback = useRef<((ev: WwEvent) => void) | null>(null)
@@ -127,6 +129,12 @@ function ProjectShell() {
       // Si el evento habla de la tarea que tengo abierta, recargar su panel: el agente
       // puede añadirle checklist o comentarios mientras la miras.
       if (touchesOpenTask(ev)) setDetailRefresh((n) => n + 1)
+      if (ev.t === 'presence:init') setOnline(ev.online)
+      if (ev.t === 'presence') {
+        setOnline((prev) =>
+          ev.status === 'online' ? [...new Set([...prev, ev.sub])] : prev.filter((s) => s !== ev.sub)
+        )
+      }
       if (ev.t === 'task:created') {
         if (ev.task.project_id === initial.project.id) {
           setTasks((prev) => {
@@ -311,6 +319,7 @@ function ProjectShell() {
             tasks,
             members,
             projectMembers,
+            online,
             canEdit,
             taskLabels,
             onTaskClick: (t: Task) => setSelectedTaskId(t.id),

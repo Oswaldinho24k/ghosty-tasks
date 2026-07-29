@@ -19,6 +19,18 @@ import { taskRef } from '../utils/taskRef'
 type Member = { sub: string; name: string; avatar: string; handle: string; role: string }
 type Detail = Awaited<ReturnType<typeof getTaskDetailFn>>
 
+// Lo último que se supo de cada tarea. Abrir el panel mostraba un "cargando" incluso para
+// una tarjeta recién vista; ahora se pinta al instante lo conocido y se refresca detrás.
+// Vive en el módulo (no en el componente) porque el panel se monta y desmonta con cada
+// apertura; y no crece sin control: son las tareas que TÚ abriste en esta sesión.
+type Snapshot = {
+  detail: Detail
+  comments: Awaited<ReturnType<typeof getCommentsFn>>
+  labels: Label[]
+  projectLabels: Label[]
+}
+const detailCache = new Map<number, Snapshot>()
+
 const LABEL_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444',
   '#f97316', '#eab308', '#22c55e', '#06b6d4',
@@ -107,6 +119,7 @@ export function TaskDetailPanel({
       setProjectLabels(pLabels)
       setTaskGoals(tGoals)
       setAllGoals(goals.map((g) => ({ id: g.id, title: g.title, status: g.status })))
+      detailCache.set(taskId, { detail: d, comments: cms, labels: lbls, projectLabels: pLabels })
     } catch (e) {
       console.error(e)
     } finally {
@@ -115,10 +128,18 @@ export function TaskDetailPanel({
   }
 
   useEffect(() => {
+    // Lo conocido primero (sin parpadeo), y la verdad en segundo plano.
+    const cached = detailCache.get(taskId)
+    if (cached) {
+      setDetail(cached.detail)
+      setTitleDraft(cached.detail.task.title)
+      setComments(cached.comments)
+      setLabels(cached.labels)
+      setProjectLabels(cached.projectLabels)
+      setLoading(false)
+    }
     load()
-    // Get current user sub from session (approximate via who created the task on panel open)
-    // We use a simple heuristic: the first member who matches — for edit/delete guards we compare server-side
-    // Actually we'll rely on the server to enforce ownership; client just shows buttons
+    // Los permisos los aplica el servidor; el cliente solo decide qué botones enseñar.
   }, [taskId])
 
   useEffect(() => {
@@ -340,7 +361,7 @@ export function TaskDetailPanel({
     {/* Clic fuera cierra el detalle. Va DEBAJO del chat del agente (z-40) a propósito:
         tocar el chat no debe cerrarte la tarea que estás mirando, y perder lo que estás
         escribiendo ahí sería peor. */}
-    <div className="fixed inset-0 z-20" onClick={onClose} />
+    <div className="fixed inset-x-0 bottom-0 top-14 z-20" onClick={onClose} />
     <motion.div
       initial={{ x: '100%', opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
@@ -348,7 +369,9 @@ export function TaskDetailPanel({
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       // Detrás del chat del agente, y recorrido a la izquierda cuando está abierto: así
       // se ven los dos y el chat manda (es donde estás escribiendo).
-      className={`fixed inset-y-0 z-30 flex w-full max-w-lg flex-col border-l border-border bg-surface shadow-xl ${
+      // Arranca DEBAJO de la barra superior: si la tapa, abrir una tarea te deja sin
+      // "Nueva tarea" ni botón del agente hasta cerrarla.
+      className={`fixed bottom-0 top-14 z-30 flex w-full max-w-lg flex-col border-l border-t border-border bg-surface shadow-xl ${
         agentOpen ? 'right-0 sm:right-[24rem]' : 'right-0'
       }`}
     >

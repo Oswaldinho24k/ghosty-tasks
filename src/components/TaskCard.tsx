@@ -33,7 +33,7 @@ export function TaskCard({
   onDragEnd?: () => void
   isDragging?: boolean
 }) {
-  const { taskLabels } = useProject()
+  const { taskLabels, online } = useProject()
   const labels = taskLabels[task.id] ?? []
   const assignee = members.find((m) => m.sub === task.assignee_sub)
   const hasDue = task.due_date != null
@@ -116,7 +116,7 @@ export function TaskCard({
           )}
         </div>
         {assignee && (
-          <MemberAvatar name={assignee.name} avatar={assignee.avatar} size={20} />
+          <MemberAvatar name={assignee.name} avatar={assignee.avatar} size={20} online={online.includes(assignee.sub)} />
         )}
       </div>
     </div>
@@ -124,7 +124,9 @@ export function TaskCard({
 }
 
 function priorityColor(p: string): string {
-  return { urgent: '#ef4444', high: '#f97316', medium: '#eab308', low: '#60a5fa' }[p] ?? 'transparent'
+  // Alta y media eran naranja y amarillo: a este tamaño (una franja de 4px, un punto de
+  // 8px) se confunden. Se separan por TONO, no por matiz: rojo, naranja, azul, gris.
+  return { urgent: '#ef4444', high: '#f97316', medium: '#3b82f6', low: '#94a3b8' }[p] ?? 'transparent'
 }
 
 function fmtDate(d: Date): string {

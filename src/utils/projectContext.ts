@@ -15,6 +15,8 @@ export type ProjectContextValue = {
   members: Member[]
   /** Los del tablero: es lo que se ofrece para filtrar y asignar desde la interfaz. */
   projectMembers: Member[]
+  /** Subs conectados ahora mismo (para el punto verde). */
+  online: string[]
   /** ¿Esta persona participa en el tablero? Si no, la UI va en solo lectura. */
   canEdit: boolean
   taskLabels: Record<number, Label[]>

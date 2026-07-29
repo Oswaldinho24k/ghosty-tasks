@@ -10,8 +10,8 @@ import type { Column, Task } from '../server/projects'
 const PRIORITY_OPTIONS = [
   { value: 'urgent', label: 'Urgente', color: '#ef4444' },
   { value: 'high', label: 'Alta', color: '#f97316' },
-  { value: 'medium', label: 'Media', color: '#eab308' },
-  { value: 'low', label: 'Baja', color: '#60a5fa' },
+  { value: 'medium', label: 'Media', color: '#3b82f6' },
+  { value: 'low', label: 'Baja', color: '#94a3b8' },
 ]
 
 export function CreateTaskModal({

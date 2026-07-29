@@ -13,8 +13,8 @@ type Member = { sub: string; name: string; avatar: string; handle: string; role:
 const PRIORITY_OPTIONS = [
   { value: 'urgent', label: 'Urgente', color: '#ef4444' },
   { value: 'high', label: 'Alta', color: '#f97316' },
-  { value: 'medium', label: 'Media', color: '#eab308' },
-  { value: 'low', label: 'Baja', color: '#60a5fa' },
+  { value: 'medium', label: 'Media', color: '#3b82f6' },
+  { value: 'low', label: 'Baja', color: '#94a3b8' },
 ]
 
 const COL_COLORS = ['#7c3aed', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#6b7280', '#0ea5e9']
