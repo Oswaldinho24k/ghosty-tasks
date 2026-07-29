@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, notFound, redirect } from '@tanstack/react-router'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { Settings, Menu, Plus, Sparkles } from 'lucide-react'
+import { Settings, Menu, Plus } from 'lucide-react'
 import { getProjectShellFn, listProjectsFn } from '../server/projects'
 import type { Task, Column, Project } from '../server/projects'
 import { getAllTaskLabelsFn } from '../server/labels'
@@ -246,7 +246,9 @@ function ProjectShell() {
         {/* Project header */}
         {/* z-30: por encima de la capa que cierra el detalle al hacer clic fuera. Si no,
             abrir una tarea bloqueaba "Nueva tarea" y el botón del agente. */}
-        <div className="relative z-30 flex items-center justify-between border-b border-border bg-surface px-4 py-3">
+        {/* data-keep-detail: tocar la barra no cierra el detalle. Abrir el chat teniendo
+            una tarea abierta debe hacer las dos cosas a la vez, no cerrar una. */}
+        <div data-keep-detail className="relative z-30 flex items-center justify-between border-b border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-3">
             {/* Hamburger (mobile only) */}
             <button
@@ -284,7 +286,7 @@ function ProjectShell() {
               }`}
               title="Ghosty AI"
             >
-              <Sparkles size={13} />
+              <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Ghosty</span>
             </button>
             <button

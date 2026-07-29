@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { X, Send, Sparkles, CheckSquare2, ChevronDown, Check, ImagePlus } from 'lucide-react'
+import { X, Send, CheckSquare2, ChevronDown, Check, ImagePlus } from 'lucide-react'
 import { askAgentFn, listAgentsFn, getProjectAgentFn, setProjectAgentFn, getAgentHistoryFn } from '../server/agent'
 import { MemberAvatar } from './MemberAvatar'
 import { taskRef } from '../utils/taskRef'
@@ -391,7 +391,7 @@ export function AgentDrawer({
               <MemberAvatar name={current.name} avatar={current.avatar} size={28} />
             ) : (
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand/10">
-                <Sparkles size={14} className="text-brand" />
+                <img src="/ghosty.svg" alt="" className="h-4 w-4" />
               </div>
             )}
             <div className="min-w-0 text-left">
@@ -433,7 +433,7 @@ export function AgentDrawer({
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-12">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10">
-              <Sparkles size={22} className="text-brand" />
+              <img src="/ghosty.svg" alt="" className="h-6 w-6" />
             </div>
             <div>
               <p className="text-sm font-semibold text-ink mb-1">Hola, soy Ghosty</p>
@@ -466,7 +466,11 @@ export function AgentDrawer({
           >
             {msg.role === 'agent' && (
               <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-brand/10">
-                <Sparkles size={11} className="text-brand" />
+                {current?.avatar ? (
+                  <MemberAvatar name={current.name} avatar={current.avatar} size={18} />
+                ) : (
+                  <img src="/ghosty.svg" alt="" className="h-3.5 w-3.5" />
+                )}
               </div>
             )}
             <div className={`max-w-[85%] ${msg.role === 'user' ? 'order-first' : ''}`}>
