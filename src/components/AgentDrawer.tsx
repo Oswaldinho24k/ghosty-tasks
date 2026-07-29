@@ -149,6 +149,9 @@ export function AgentDrawer({
   const [dragging, setDragging] = useState(false)
   // Autocompletado de tareas: se escribe "#" y se elige; el chat las trata como un chip.
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  // Hasta saber si hay conversación previa no se pinta nada: mostrar la bienvenida y
+  // reemplazarla un segundo después por el historial es un parpadeo feo.
+  const [historyReady, setHistoryReady] = useState(false)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -273,7 +276,10 @@ export function AgentDrawer({
     const key = `${projectId}:${handle}`
     // Lo conocido primero (instantáneo, sin salto), y el servidor detrás.
     const cached = historyCache.get(key)
-    if (cached) setMessages(cached)
+    if (cached) {
+      setMessages(cached)
+      setHistoryReady(true)
+    }
 
     let alive = true
     getAgentHistoryFn({ data: { projectId, handle } })
@@ -290,6 +296,7 @@ export function AgentDrawer({
         setMessages(msgs)
       })
       .catch(() => {})
+      .finally(() => { if (alive) setHistoryReady(true) })
     return () => { alive = false }
   }, [projectId, handle])
 
@@ -443,7 +450,7 @@ export function AgentDrawer({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && (
+        {historyReady && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-12">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10">
               <img src="/ghosty.svg" alt="" className="h-6 w-6" />
