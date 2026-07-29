@@ -75,6 +75,32 @@ Cómo está construido, y por qué así:
 - **Imágenes**: se arrastran o se pegan en el drawer, van al storage del workspace (el de
   Teams, sin bucket propio) y al agente le llega una URI — no los bytes, que se comerían
   el contexto del turno.
+- **Referencias a tareas**: se escribe `#` y se elige; la referencia (`GStudio-4`) queda
+  como chip DENTRO del campo y se quita con su ✕. El texto es la fuente de verdad — el
+  chip sólo lo pinta —, así que el agente recibe la frase tal cual se lee.
+- **Las herramientas se ven**: cada acción se anuncia mientras corre, las repetidas se
+  agrupan con `×n` y dicen sobre qué tarea actuaron. Seis líneas de "Actualizó una tarea"
+  no dicen nada.
+
+**Lo que sabe en cada tablero** se compone de dos capas, visibles en Ajustes → *Ghosty en
+este tablero*:
+
+1. **De fábrica** (solo lectura): la plomería —qué herramientas tiene, que las
+   descripciones son markdown, quién le está hablando, la fecha de hoy—. Se enseña porque
+   cuando el agente hace algo raro la primera pregunta es "¿qué le dijeron?", y esa
+   respuesta vivía sólo en el código.
+2. **Reglas del tablero** (editables): las de la casa — *"nada pasa a Done sin
+   comentario"*. Se guardan en `task_config` (`instructions:<projectId>`) y van al FINAL
+   del prompt, así que pesan más que lo genérico. Son por proyecto y no por agente: la
+   persona del agente es compartida con Teams.
+
+### Permisos, en una línea
+
+Todo el equipo del workspace **ve** un tablero; **participan** los miembros del proyecto,
+y se entra siendo asignado. Por eso hay dos listas y no conviene confundirlas: la
+**fusionada** (equipo + proyecto) existe sólo para pintar caras —un asignado que no está
+en el tablero igual necesita avatar— y la del **proyecto**, que es la que mandan Ajustes,
+el modal de miembros y el selector de asignado.
 
 Lo que **todavía no** hace aquí: artefactos y notas de voz. El agente los sabe emitir,
 pero el pipeline que los detecta, publica y pinta vive en Ghosty Teams.
