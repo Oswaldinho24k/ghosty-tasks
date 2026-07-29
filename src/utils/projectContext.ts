@@ -8,7 +8,10 @@ export type ProjectContextValue = {
   projectId: number
   columns: Column[]
   tasks: Task[]
+  /** Equipo completo del workspace: sirve para PINTAR a cualquiera (autores, asignados). */
   members: Member[]
+  /** Los del tablero: es lo que se ofrece para filtrar y asignar desde la interfaz. */
+  projectMembers: Member[]
   /** ¿Esta persona participa en el tablero? Si no, la UI va en solo lectura. */
   canEdit: boolean
   taskLabels: Record<number, Label[]>

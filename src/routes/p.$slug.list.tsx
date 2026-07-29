@@ -17,7 +17,7 @@ export const Route = createFileRoute('/p/$slug/list')({
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
 
 function ListView() {
-  const { tasks, columns, members, onTaskClick } = useProject()
+  const { tasks, columns, members, onTaskClick, projectMembers } = useProject()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -48,7 +48,7 @@ function ListView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <FilterBar filters={filters} members={members} onFiltersChange={setFilters} />
+      <FilterBar filters={filters} members={projectMembers} onFiltersChange={setFilters} />
       <div className="flex-1 overflow-y-auto">
         <table className="w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-surface-2">

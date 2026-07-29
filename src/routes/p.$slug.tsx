@@ -291,6 +291,7 @@ function ProjectShell() {
             columns,
             tasks,
             members,
+            projectMembers,
             canEdit,
             taskLabels,
             onTaskClick: (t: Task) => setSelectedTaskId(t.id),
