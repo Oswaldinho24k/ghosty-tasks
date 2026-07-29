@@ -157,6 +157,9 @@ export function AgentDrawer({
         )
       )
       setBusy(false)
+      // Devolver el foco al terminar el turno: seguir la conversación no debería costar
+      // un clic, igual que en Ghosty Teams.
+      setTimeout(() => inputRef.current?.focus(), 30)
     }
   }, [])
 
@@ -255,6 +258,8 @@ export function AgentDrawer({
       { id: turnId, role: 'agent', content: '', streaming: true, created_tasks: [] },
     ])
     setInput('')
+    // El foco se queda donde estabas escribiendo (enviar no lo pierde).
+    inputRef.current?.focus()
     const attachments = files.map((f) => ({ name: f.name, mimeType: f.mimeType, bytes: f.bytes }))
     setFiles([])
     setBusy(true)
