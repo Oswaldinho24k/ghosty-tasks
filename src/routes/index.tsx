@@ -16,7 +16,10 @@ export const Route = createFileRoute('/')({
       const { workspaces, portal } = await listMyWorkspacesFn()
       // Con uno solo no tiene sentido preguntar.
       if (workspaces.length === 1) throw redirect({ href: workspaces[0].url })
-      return { picker: true as const, workspaces, portal }
+      // El correo viaja al picker: cuando la lista sale vacía, lo primero que hay que
+      // poder ver es CON QUÉ CUENTA estás mirando. Sin eso, una sesión de otra cuenta se
+      // ve idéntica a "no tienes equipos" y no hay por dónde empezar.
+      return { picker: true as const, workspaces, portal, email: user.email ?? '' }
     }
     const projects = await listProjectsFn()
     if (projects.length > 0) {
@@ -30,7 +33,7 @@ export const Route = createFileRoute('/')({
 function WorkspacePicker() {
   const data = Route.useLoaderData()
   if (!data?.picker) return null
-  const { workspaces, portal } = data
+  const { workspaces, portal, email } = data
 
   return (
     <div className="mx-auto max-w-md py-16 px-6">
@@ -56,9 +59,26 @@ function WorkspacePicker() {
           ))}
         </div>
       ) : (
-        <p className="mt-6 rounded-xl border border-border bg-surface-2 px-4 py-6 text-sm text-muted">
-          Todavía no perteneces a ningún equipo. Crea uno en Ghosty Studio y vuelve.
-        </p>
+        <div className="mt-6 rounded-xl border border-border bg-surface-2 px-4 py-6 text-sm text-muted">
+          <p>
+            {email ? <>La cuenta <span className="text-ink">{email}</span> no</> : 'No'} pertenece a
+            ningún equipo. Crea uno en Ghosty Studio, o entra con otra cuenta.
+          </p>
+          {/* Sin esta salida la pantalla es un callejón: el loader sólo manda a /login
+              cuando NO hay sesión, así que con la sesión de otra cuenta te quedas
+              atrapado viendo una lista vacía y sin forma de cambiarla. */}
+          <button
+            type="button"
+            onClick={async () => {
+              const { logout } = await import('../server/auth')
+              const r = await logout()
+              window.location.href = r.next
+            }}
+            className="mt-3 text-brand hover:underline"
+          >
+            Cerrar sesión y entrar con otra cuenta
+          </button>
+        </div>
       )}
 
       <a href={`${portal}/app`} className="mt-6 inline-block text-sm text-brand hover:underline">
