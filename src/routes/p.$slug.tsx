@@ -351,6 +351,7 @@ function ProjectShell() {
             online,
             canEdit,
             taskLabels,
+            selectedTaskId,
             onTaskClick: (t: Task) => setSelectedTaskId(t.id),
             onColumnsChange: setColumns,
             onTasksChange: setTasks,

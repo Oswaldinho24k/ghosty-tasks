@@ -34,7 +34,8 @@ export function TaskCard({
   onDragEnd?: () => void
   isDragging?: boolean
 }) {
-  const { taskLabels, online } = useProject()
+  const { taskLabels, online, selectedTaskId } = useProject()
+  const abierta = selectedTaskId === task.id
   const labels = taskLabels[task.id] ?? []
   const assignee = members.find((m) => m.sub === task.assignee_sub)
   const hasDue = task.due_date != null
@@ -52,6 +53,11 @@ export function TaskCard({
         hover:shadow-md hover:border-brand/30 cursor-pointer select-none
         ${isDragging ? 'opacity-40 scale-95' : ''}
         ${task.status === 'done' ? 'opacity-60' : ''}
+        ${/* La abierta en el panel. Con muchas tarjetas —y llegando de una liga de Teams—
+             no había forma de saber CUÁL estás viendo. Va con `outline`, no con borde ni
+             fondo: se dibuja FUERA de la caja, así que no desplaza el contenido ni lo tapa
+             la barra de prioridad, que es absolute sobre el borde superior. */ ''}
+        ${abierta ? 'outline outline-2 outline-brand outline-offset-2 opacity-100' : ''}
         border-border`}
     >
       {/* Prioridad como barra SUPERIOR: se lee como parte de la tarjeta y no compite con
