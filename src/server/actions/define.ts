@@ -35,6 +35,16 @@ export type Action<I = Record<string, unknown>, O = unknown> = {
   schema: Schema;
   /** Cambia datos → el agente debe confirmarla si además es destructiva. */
   destructive?: boolean;
+  /**
+   * `"board"` (default) trabaja DENTRO del tablero que fija el token. `"workspace"` está por
+   * encima: listar tableros o crear uno.
+   *
+   * Existe porque el token del agente lleva el `projectId` dentro, así que "créame un
+   * tablero" era imposible de pedir — no hay tablero todavía. La alternativa era que cada
+   * superficie reimplementara "crear tablero" por su cuenta (Ghosty Teams empezó a hacerlo),
+   * que es exactamente lo que este archivo existe para evitar.
+   */
+  scope?: "board" | "workspace";
   run: (ctx: ActionCtx, input: I) => Promise<O>;
 };
 

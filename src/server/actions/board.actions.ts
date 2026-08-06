@@ -430,6 +430,40 @@ const addMember = defineAction({
   },
 });
 
+/* ── Acciones de ESPACIO ──────────────────────────────────────────────────── */
+// Por encima del tablero: listar los que hay y crear uno. Van con `scope: "workspace"`
+// porque el token del agente fija un `projectId` y "créame un tablero" no puede tener uno
+// todavía. Sin esto, cada superficie acababa reimplementando "crear tablero" por su cuenta —
+// que es justo lo que este archivo evita.
+
+const listBoards = defineAction({
+  name: "list_boards",
+  description:
+    "Lista los tableros de este espacio. Úsala cuando no sepas en cuál trabajar o te pregunten qué tableros hay.",
+  schema: {},
+  scope: "workspace",
+  run: async () => {
+    const { listProjects } = await import("../ops/projects.ops");
+    const boards = await listProjects();
+    return { boards: boards.map((b) => ({ name: b.name, slug: b.slug })) };
+  },
+});
+
+const createBoard = defineAction({
+  name: "create_board",
+  description:
+    "Crea un tablero nuevo, con sus columnas To Do / In Progress / Done. Úsala sólo si te piden trabajar en uno que no existe: comprueba antes con list_boards.",
+  schema: {
+    name: { type: "string", description: "Nombre del tablero.", required: true },
+  },
+  scope: "workspace",
+  run: async (ctx, input: { name: string }) => {
+    const { createProject } = await import("../ops/projects.ops");
+    const b = await createProject(ctx.sub, { name: input.name });
+    return { created: b.name, slug: b.slug, id: b.id, columns: ["To Do", "In Progress", "Done"] };
+  },
+});
+
 export const ACTIONS: Action<never, unknown>[] = [
   listBoard,
   findTasks,
@@ -441,6 +475,8 @@ export const ACTIONS: Action<never, unknown>[] = [
   addChecklistItem,
   addMember,
   deleteTask,
+  listBoards,
+  createBoard,
 ] as unknown as Action<never, unknown>[];
 
 export const ACTIONS_BY_NAME = new Map(ACTIONS.map((a) => [a.name, a]));
