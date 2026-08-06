@@ -34,7 +34,10 @@ export function verifyToolToken(token: string): Payload | null {
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
     const p = JSON.parse(Buffer.from(body, "base64url").toString()) as Payload;
-    if (!p.sub || !p.projectId) return null;
+    // ⚠️ `projectId: 0` es VÁLIDO y significa "todavía no hay tablero": es lo que permite
+    // pedir `create_board` / `list_boards`, que por definición no pueden traer uno. El
+    // endpoint rechaza con él cualquier acción de tablero, así que un 0 no abre nada.
+    if (!p.sub || typeof p.projectId !== "number" || p.projectId < 0) return null;
     if (p.exp < Math.floor(Date.now() / 1000)) return null;
     return p;
   } catch {

@@ -85,25 +85,6 @@ function rowToTask(r: Record<string, string | null>): Task {
   };
 }
 
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40) || "project";
-}
-
-async function uniqueSlug(base: string): Promise<string> {
-  let slug = base;
-  for (let i = 2; ; i++) {
-    const rows = await dbq("SELECT 1 FROM task_projects WHERE slug = ?", [slug]);
-    if (!rows[0]) return slug;
-    slug = `${base}-${i}`;
-  }
-}
-
 async function getUserSub(): Promise<string> {
   const { useSession } = await import("@tanstack/react-start/server");
   const { sessionConfig } = await import("./session.server");
@@ -149,6 +130,18 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
        WHERE m.project_id = ?`,
       [project.id]
     );
+    // Contadores por tarjeta (checklist, comentarios, ligas). El badge de checklist existía
+    // en TaskCard desde siempre y NADIE le pasaba los datos, así que no se veía nunca.
+    // Van en tres agregados y no en un JOIN gigante: cada uno es un índice ya existente.
+    const counts = await dbq(
+      `SELECT t.id AS id,
+              (SELECT COUNT(*) FROM task_checklist_items c WHERE c.task_id = t.id) AS chk_total,
+              (SELECT COUNT(*) FROM task_checklist_items c WHERE c.task_id = t.id AND c.done = 1) AS chk_done,
+              (SELECT COUNT(*) FROM task_comments m WHERE m.task_id = t.id) AS comments,
+              (SELECT COUNT(*) FROM task_links l WHERE l.task_id = t.id) AS links
+         FROM task_tasks t WHERE t.project_id = ? AND t.parent_id IS NULL AND COALESCE(t.archived,0) = 0`,
+      [project.id]
+    );
     const userRow = await dbq("SELECT is_owner FROM gc_users WHERE sub = ?", [sub]);
     const isOwner = num(userRow[0]?.is_owner) === 1;
     // Ver es de todo el workspace; participar, de los miembros del tablero.
@@ -166,6 +159,12 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
         handle: r.handle ?? "",
         role: r.role ?? "member",
       })),
+      counts: Object.fromEntries(
+        counts.map((r) => [
+          num(r.id),
+          { chkTotal: num(r.chk_total), chkDone: num(r.chk_done), comments: num(r.comments), links: num(r.links) },
+        ])
+      ),
       currentSub: sub,
       isOwner,
       canEdit,
@@ -177,22 +176,17 @@ export const createProjectFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await ensureSchema();
     const sub = await getUserSub();
-    const slug = await uniqueSlug(slugify(data.name));
-    const rows = await dbq(
-      "INSERT INTO task_projects (slug, name, description, icon, color, created_by) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
-      [slug, data.name, data.description ?? null, data.icon ?? null, data.color ?? "#7c3aed", sub]
-    );
-    const project = rowToProject(rows[0]);
-
-    // Auto-seed columns: To Do → In Progress → Done
-    await dbq("INSERT INTO task_columns (project_id, name, position, color) VALUES (?, ?, ?, ?)", [project.id, "To Do", 0, "#6b7280"]);
-    await dbq("INSERT INTO task_columns (project_id, name, position, color) VALUES (?, ?, ?, ?)", [project.id, "In Progress", 1, "#3b82f6"]);
-    await dbq("INSERT INTO task_columns (project_id, name, position, color) VALUES (?, ?, ?, ?)", [project.id, "Done", 2, "#22c55e"]);
-
-    // Owner auto-added as member
-    await dbq("INSERT OR IGNORE INTO task_project_members (project_id, user_sub, role) VALUES (?, ?, ?)", [project.id, sub, "owner"]);
-
-    return project;
+    // Cáscara: el cuerpo vive en ops/projects.ops.ts y lo comparte la acción `create_board`
+    // del agente. Es el mismo reparto que ya tenían las mutaciones de tarea.
+    const { createProject } = await import("./ops/projects.ops");
+    const p = await createProject(sub, {
+      name: data.name,
+      description: data.description,
+      icon: data.icon,
+      color: data.color,
+    });
+    const rows = await dbq("SELECT * FROM task_projects WHERE id = ?", [p.id]);
+    return rowToProject(rows[0]);
   });
 
 export const updateProjectFn = createServerFn({ method: "POST" })

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { X, Check, Plus, Trash2, ChevronDown, ChevronUp, Tag, MessageCircle, Target, Pencil, Layers, Calendar } from 'lucide-react'
+import { X, Check, Plus, Trash2, ChevronDown, ChevronUp, Tag, MessageCircle, Target, Pencil, Layers, Calendar, GitPullRequest, CircleDot, Link2, ExternalLink } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import { toast } from 'sonner'
 import { getTaskDetailFn, updateTaskFn, deleteTaskFn, createTaskFn } from '../server/tasks'
@@ -774,6 +774,55 @@ export function TaskDetailPanel({
                 </button>
               </div>
             </div>
+
+            {/* DESARROLLO — el panel de Jira / los attachments de Linear. Sólo aparece si hay
+                algo colgado: una sección vacía en cada tarea es ruido permanente. */}
+            {detail.links.length > 0 && (
+              <div>
+                <p className="flex items-center gap-1 mb-2 text-xs font-medium text-muted">
+                  <GitPullRequest size={12} />
+                  Desarrollo
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {detail.links.map((l) => {
+                    const Icono = l.kind === 'pr' ? GitPullRequest : l.kind === 'issue' ? CircleDot : Link2
+                    // El estado se guardó al vincular: el tablero no habla con GitHub. Por eso
+                    // se pinta como dato, no como verdad viva — quien quiera el estado de
+                    // ahora abre el enlace.
+                    // ⚠️ Sólo se colorea lo que se RECONOCE. El default era verde, así que
+                    // un estado que el modelo se inventó ("rejected") pintaba un PR
+                    // rechazado como si todo fuera bien. Hoy `normalizeState` lo acota al
+                    // guardar y aquí lo desconocido se queda neutro.
+                    const tono =
+                      l.state === 'merged' ? 'text-violet-500 border-violet-500/40 bg-violet-500/5'
+                      : l.state === 'closed' ? 'text-red-500 border-red-500/40 bg-red-500/5'
+                      : l.state === 'open' ? 'text-emerald-600 border-emerald-600/40 bg-emerald-600/5'
+                      : 'text-muted border-border'
+                    const etiqueta =
+                      l.state === 'merged' ? 'mergeado'
+                      : l.state === 'closed' ? 'cerrado'
+                      : l.state === 'draft' ? 'borrador'
+                      : l.state === 'open' ? 'abierto'
+                      : null
+                    return (
+                      <a
+                        key={l.url}
+                        href={l.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={l.title ?? l.url}
+                        className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 text-xs transition hover:bg-surface-3 ${tono}`}
+                      >
+                        <Icono size={12} className="shrink-0" />
+                        <span className="truncate font-mono text-[11px]">{l.ref ?? l.url.replace(/^https?:\/\//, '')}</span>
+                        {etiqueta && <span className="shrink-0 text-[10px] opacity-80">{etiqueta}</span>}
+                        <ExternalLink size={10} className="shrink-0 opacity-60" />
+                      </a>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Subtasks */}
             <div>

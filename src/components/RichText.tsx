@@ -35,7 +35,21 @@ export function RichText({
     immediatelyRender: false,
     editable,
     extensions: [
-      StarterKit.configure({ link: { openOnClick: false, autolink: false } }),
+      // ⚠️ Los tres estaban apagados y el resultado era que un enlace **existía pero no lo
+      // parecía**: `openOnClick:false` hacía que el clic sólo moviera el cursor, y sin
+      // `autolink` una URL pegada a secas se quedaba en texto. El agente escribía la liga
+      // del PR y quien abría la tarea no tenía cómo llegar.
+      //
+      // `openOnClick` con Cmd/Ctrl: en un editor, un clic normal tiene que poder colocar el
+      // cursor DENTRO del enlace para editarlo — eso es lo que protegía el false.
+      StarterKit.configure({
+        link: {
+          openOnClick: true,
+          autolink: true,
+          defaultProtocol: 'https',
+          HTMLAttributes: { target: '_blank', rel: 'noreferrer noopener' },
+        },
+      }),
       Placeholder.configure({ placeholder: placeholder ?? 'Escribe…' }),
       MarkdownExt.configure({
         // Se acepta HTML al PARSEAR: si algo llega con etiquetas (el agente lo hizo una
@@ -43,7 +57,8 @@ export function RichText({
         // siempre sale markdown.
         html: true,
         bulletListMarker: '-',
-        linkify: false,
+        // URLs a secas del agente → enlaces al PARSEAR, no sólo al teclear.
+        linkify: true,
         breaks: false,
         transformPastedText: true,
       }),

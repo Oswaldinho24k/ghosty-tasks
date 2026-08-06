@@ -49,6 +49,12 @@ export const Route = createFileRoute("/api/agent/tools")({
           const action = ACTIONS_BY_NAME.get(body.name ?? "");
           // Si no es del tablero, puede ser un conector del usuario → se reenvía a Teams.
           if (!action) return json(await runConnectorTool(claims.sub, body.name ?? "", body.args));
+          // Una acción DE TABLERO necesita uno. Con `projectId: 0` —el token que se mina
+          // para poder crear el primero— se rechaza aquí en vez de dejar que la consulta
+          // busque en el proyecto 0 y devuelva "no encuentro esa tarea", que manda a
+          // diagnosticar el lado equivocado.
+          if ((action.scope ?? "board") === "board" && !claims.projectId)
+            return json({ ok: false, error: "esta acción necesita un tablero; usa list_boards o create_board primero" });
           try {
             const input = parseInput(action.schema, body.args);
             const result = await action.run(

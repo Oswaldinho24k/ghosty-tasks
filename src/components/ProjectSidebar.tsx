@@ -1,6 +1,6 @@
 import { Link, useRouter } from '@tanstack/react-router'
-import { useState, useSyncExternalStore } from 'react'
-import { Plus, LayoutGrid, List, Target, Settings, Layers, Rocket, Palette, Moon, Sun } from 'lucide-react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { Plus, LayoutGrid, List, Target, Settings, Layers, Rocket, Palette, Moon, Sun, MessagesSquare } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import type { Project } from '../server/projects'
 import { createProjectFn } from '../server/projects'
@@ -59,7 +59,7 @@ export function ProjectSidebar({
     setNewName('')
     setCreating(false)
     setBusy(false)
-    router.navigate({ to: '/p/$slug/board', params: { slug: project.slug }, search: { q: undefined, priority: undefined, assignee: undefined } })
+    router.navigate({ to: '/p/$slug/board', params: { slug: project.slug }, search: { q: undefined, priority: undefined, assignee: undefined, task: undefined } })
   }
 
   function toggleScheme() {
@@ -88,7 +88,7 @@ export function ProjectSidebar({
               <Link
                 to="/p/$slug/board"
                 params={{ slug: p.slug }}
-                search={{ q: undefined, priority: undefined, assignee: undefined }}
+                search={{ q: undefined, priority: undefined, assignee: undefined, task: undefined }}
                 onClick={onClose}
                 className={`mx-1 flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors
                   ${active ? 'bg-brand/10 font-medium text-brand' : 'text-ink hover:bg-surface-3'}`}
@@ -105,7 +105,7 @@ export function ProjectSidebar({
                       key={view}
                       to={`/p/$slug/${view}` as '/p/$slug/board'}
                       params={{ slug: p.slug }}
-                      search={{ q: undefined, priority: undefined, assignee: undefined }}
+                      search={{ q: undefined, priority: undefined, assignee: undefined, task: undefined }}
                       onClick={onClose}
                       className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors
                         ${currentView === view ? 'bg-brand/10 font-medium text-brand' : 'text-muted hover:bg-surface-3 hover:text-ink'}`}
@@ -167,8 +167,12 @@ export function ProjectSidebar({
         </AnimatePresence>
       </div>
 
-      {/* Bottom: theme toggle + settings + user */}
+      {/* Bottom: volver a Teams + tema + ajustes + usuario */}
       <div className="border-t border-border p-3 space-y-1">
+        {/* Al MISMO workspace, no al apex: quien está en business.tasks quiere
+            business.teams. El slug sale del host, así que no hay nada que configurar y
+            no puede apuntar al equipo equivocado. */}
+        <TeamsLink />
         <div className="flex items-center gap-1">
           <button
             onClick={() => { onClose?.(); onSettingsOpen?.() }}
@@ -194,5 +198,28 @@ export function ProjectSidebar({
         </button>
       </div>
     </aside>
+  )
+}
+
+/** Volver al Teams de ESTE workspace. Tasks y Teams son dos apps del mismo espacio y se
+ *  salta entre ellas todo el día; sin esto hay que editar la URL a mano. */
+function TeamsLink() {
+  const [href, setHref] = useState<string | null>(null)
+  useEffect(() => {
+    // El slug es el primer label del host (`business.tasks.ghosty.studio`). En el apex o
+    // en local no hay workspace que abrir → no se pinta el enlace.
+    const parts = window.location.hostname.split('.')
+    if (parts.length < 3 || parts[1] !== 'tasks') return
+    setHref(`https://${parts[0]}.teams.${parts.slice(2).join('.')}`)
+  }, [])
+  if (!href) return null
+  return (
+    <a
+      href={href}
+      className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-surface-3 hover:text-ink transition-colors"
+    >
+      <MessagesSquare size={13} />
+      Ir a Teams
+    </a>
   )
 }

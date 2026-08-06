@@ -121,6 +121,33 @@ const DDL: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS task_comments_task ON task_comments(task_id, created_at)`,
 
+  // DESARROLLO: los PR, issues y ligas que cuelgan de una tarea. Es el "development panel"
+  // de Jira y los "attachments" de Linear, y existe por la misma razón que allá: pegar la
+  // URL en la descripción funciona una vez, pero no se puede leer de un vistazo desde el
+  // tablero ni permite que la tarea reaccione a lo que le pase al PR.
+  //
+  // `state` se guarda aquí a propósito (open|merged|closed|draft): el tablero NO habla con
+  // GitHub —no tiene credenciales de nadie— así que lo escribe quien sí puede, que es Ghosty
+  // Teams al vincular y al mergear. Un estado viejo es peor que ninguno, así que se muestra
+  // junto a `updated_at`.
+  `CREATE TABLE IF NOT EXISTS task_links (
+    id         INTEGER PRIMARY KEY,
+    task_id    INTEGER NOT NULL,
+    kind       TEXT NOT NULL DEFAULT 'url',
+    url        TEXT NOT NULL,
+    ref        TEXT,
+    title      TEXT,
+    state      TEXT,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS task_links_uniq ON task_links(task_id, url)`,
+  `CREATE INDEX IF NOT EXISTS task_links_task ON task_links(task_id)`,
+  // Para que Ghosty Teams encuentre la tarea de un PR al mergearlo, que es lo que permite
+  // moverla sola.
+  `CREATE INDEX IF NOT EXISTS task_links_url ON task_links(url)`,
+
   // Bitácora por tarea
   `CREATE TABLE IF NOT EXISTS task_activities (
     id         INTEGER PRIMARY KEY,

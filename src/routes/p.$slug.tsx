@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, notFound, redirect } from '@tanstack/react-router'
+import { createFileRoute, Outlet, notFound, redirect, useRouter } from '@tanstack/react-router'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Settings, Menu, Plus } from 'lucide-react'
 import { getProjectShellFn, listProjectsFn } from '../server/projects'
@@ -20,13 +20,25 @@ import { ProjectContext } from '../utils/projectContext'
 import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers'
 
 export const Route = createFileRoute('/p/$slug')({
+  // `?task=<id>` abre esa tarea al cargar. Va en el PADRE y no en `/board` porque el panel de
+  // detalle vive aquí: así la misma liga sirve desde board, lista y goals.
+  //
+  // Es lo que hace compartible una tarea — antes la tarea abierta era estado de React y no
+  // había forma de mandarle a alguien "ésta". La tarjeta del chat en Teams la usa.
+  validateSearch: (s: Record<string, unknown>) => {
+    // ⚠️ El search llega parseado: `?task=42` puede venir como NÚMERO o como texto según
+    // quién construya la URL. Number() traga los dos; un `typeof === "string"` descartaría
+    // justo el caso normal. (Es el mismo tropiezo del `?v` de los artefactos en Teams.)
+    const n = Number(s.task)
+    return { task: Number.isInteger(n) && n > 0 ? n : undefined }
+  },
   loader: async ({ params }) => {
     const [shell, projects] = await Promise.all([
       getProjectShellFn({ data: { slug: params.slug } }).catch(() => null),
       listProjectsFn(),
     ])
     if (!shell) {
-      if (projects.length > 0) throw redirect({ to: '/p/$slug/board', params: { slug: projects[0].slug }, search: { q: undefined, priority: undefined, assignee: undefined } })
+      if (projects.length > 0) throw redirect({ to: '/p/$slug/board', params: { slug: projects[0].slug }, search: { q: undefined, priority: undefined, assignee: undefined, task: undefined } })
       throw notFound()
     }
     return { shell, projects }
@@ -45,6 +57,31 @@ function ProjectShell() {
   const [tasks, setTasks] = useState(initial.tasks)
   const [taskLabels, setTaskLabels] = useState<Record<number, Label[]>>({})
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
+  // Siembra desde `?task=`. Con `slug` en las dependencias además de `task`: navegar a OTRO
+  // tablero con la misma liga tiene que reabrir, y una tarea de otro proyecto simplemente no
+  // resuelve (el panel pide por (taskId, projectId)).
+  const deepTask = Route.useSearch().task
+  const router = useRouter()
+  useEffect(() => {
+    if (deepTask) setSelectedTaskId(deepTask)
+  }, [deepTask, slug])
+  // Cerrar el panel BORRA el `?task=`. Si no, la URL sigue diciendo que esa tarea está
+  // abierta —recargar la reabriría— y copiarla mandaría a alguien a algo que ya cerraste.
+  //
+  // ⚠️ Va por `router.navigate` con el pathname ACTUAL, no por `Route.useNavigate()`. Ése
+  // navega relativo a ESTA ruta, que es el padre `/p/$slug`: pasarle sólo `search` reescribía
+  // la URL a `/p/gstudio` y **se llevaba por delante el `/board`** — el tablero desaparecía
+  // y quedaba el panel flotando sobre un vacío. Limpiar un parámetro no puede cambiar de
+  // pantalla.
+  const closeTask = useCallback(() => {
+    setSelectedTaskId(null)
+    if (deepTask)
+      router.navigate({
+        to: router.state.location.pathname,
+        search: (prev: Record<string, unknown>) => ({ ...prev, task: undefined }),
+        replace: true,
+      })
+  }, [deepTask, router])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -325,6 +362,8 @@ function ProjectShell() {
             online,
             canEdit,
             taskLabels,
+            counts: initial.counts ?? {},
+            selectedTaskId,
             onTaskClick: (t: Task) => setSelectedTaskId(t.id),
             onColumnsChange: setColumns,
             onTasksChange: setTasks,
@@ -345,7 +384,7 @@ function ProjectShell() {
             taskId={selectedTaskId}
             projectId={initial.project.id}
             members={projectMembers}
-            onClose={() => setSelectedTaskId(null)}
+            onClose={closeTask}
             onDeleted={(id) => {
               setTasks((prev) => prev.filter((t) => t.id !== id))
               setTaskLabels((prev) => { const n = { ...prev }; delete n[id]; return n })
