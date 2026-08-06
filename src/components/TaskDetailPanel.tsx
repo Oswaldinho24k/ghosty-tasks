@@ -789,11 +789,21 @@ export function TaskDetailPanel({
                     // El estado se guardó al vincular: el tablero no habla con GitHub. Por eso
                     // se pinta como dato, no como verdad viva — quien quiera el estado de
                     // ahora abre el enlace.
+                    // ⚠️ Sólo se colorea lo que se RECONOCE. El default era verde, así que
+                    // un estado que el modelo se inventó ("rejected") pintaba un PR
+                    // rechazado como si todo fuera bien. Hoy `normalizeState` lo acota al
+                    // guardar y aquí lo desconocido se queda neutro.
                     const tono =
-                      l.state === 'merged' ? 'text-violet-500 border-violet-500/40'
-                      : l.state === 'closed' ? 'text-red-500 border-red-500/40'
-                      : l.state === 'draft' ? 'text-muted border-border'
-                      : 'text-emerald-600 border-emerald-600/40'
+                      l.state === 'merged' ? 'text-violet-500 border-violet-500/40 bg-violet-500/5'
+                      : l.state === 'closed' ? 'text-red-500 border-red-500/40 bg-red-500/5'
+                      : l.state === 'open' ? 'text-emerald-600 border-emerald-600/40 bg-emerald-600/5'
+                      : 'text-muted border-border'
+                    const etiqueta =
+                      l.state === 'merged' ? 'mergeado'
+                      : l.state === 'closed' ? 'cerrado'
+                      : l.state === 'draft' ? 'borrador'
+                      : l.state === 'open' ? 'abierto'
+                      : null
                     return (
                       <a
                         key={l.url}
@@ -801,11 +811,11 @@ export function TaskDetailPanel({
                         target="_blank"
                         rel="noreferrer"
                         title={l.title ?? l.url}
-                        className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 text-xs transition hover:bg-surface-3 ${l.state ? tono : 'border-border text-ink'}`}
+                        className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 text-xs transition hover:bg-surface-3 ${tono}`}
                       >
                         <Icono size={12} className="shrink-0" />
                         <span className="truncate font-mono text-[11px]">{l.ref ?? l.url.replace(/^https?:\/\//, '')}</span>
-                        {l.state && <span className="shrink-0 text-[10px] opacity-80">{l.state}</span>}
+                        {etiqueta && <span className="shrink-0 text-[10px] opacity-80">{etiqueta}</span>}
                         <ExternalLink size={10} className="shrink-0 opacity-60" />
                       </a>
                     )

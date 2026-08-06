@@ -435,6 +435,24 @@ const addMember = defineAction({
 // descripción funciona una vez; esto además se ve desde el tablero y deja que la tarea
 // reaccione a lo que le pase al PR.
 
+/**
+ * Normaliza el estado a un vocabulario CERRADO.
+ *
+ * ⚠️ El modelo escribe lo que le parece —"rejected", "cerrado", "aprobado"— y un estado que
+ * el pintor no conoce caía al color de "todo bien". Un PR rechazado en verde es peor que un
+ * PR sin color.
+ */
+function normalizeState(v: unknown): string | null {
+  const q = String(v ?? "").trim().toLowerCase();
+  if (!q) return null;
+  if (/(^|\W)(merged|mergeado|fusionado)/.test(q)) return "merged";
+  if (/(^|\W)(draft|borrador)/.test(q)) return "draft";
+  if (/(^|\W)(closed|rejected|cerrado|rechazad|declined)/.test(q)) return "closed";
+  if (/(^|\W)(open|abierto|opened)/.test(q)) return "open";
+  // Desconocido → sin estado. Mejor un chip neutro que uno que miente de color.
+  return null;
+}
+
 /** "https://github.com/dueño/repo/pull/165" → {kind:"pr", ref:"dueño/repo#165"} */
 function classifyLink(url: string): { kind: string; ref: string | null } {
   const m = url.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/(pull|issues)\/(\d+)/i);
@@ -450,7 +468,7 @@ const linkTask = defineAction({
     id: { type: "string", description: 'La tarea ("GStudio-6", "#6" o 6).', required: true },
     url: { type: "string", description: "La URL completa.", required: true },
     title: { type: "string", description: "Título corto de lo que se enlaza." },
-    state: { type: "string", description: "Estado si lo sabes: open, draft, merged, closed." },
+    state: { type: "string", description: "Estado si lo sabes, EXACTAMENTE uno de: open, draft, merged, closed. Un PR rechazado o cerrado es closed." },
   },
   async run(ctx, input: { id: string; url: string; title?: string; state?: string }) {
     const t = await taskOf(ctx.projectId, input.id);
@@ -463,7 +481,7 @@ const linkTask = defineAction({
        ON CONFLICT(task_id, url) DO UPDATE SET title = COALESCE(excluded.title, task_links.title),
                                                state = COALESCE(excluded.state, task_links.state),
                                                updated_at = unixepoch()`,
-      [num(t.id), kind, url, ref, input.title ?? null, input.state ?? null, ctx.sub]
+      [num(t.id), kind, url, ref, input.title ?? null, normalizeState(input.state), ctx.sub]
     );
     const { publish, ch } = await import("../bus.server");
     publish(ch.project(ctx.projectId), { t: "task:updated", id: num(t.id) } as never);
