@@ -20,6 +20,8 @@ export type ProjectContextValue = {
   /** ¿Esta persona participa en el tablero? Si no, la UI va en solo lectura. */
   canEdit: boolean
   taskLabels: Record<number, Label[]>
+  /** Contadores por tarjeta: checklist, comentarios y ligas. */
+  counts: Record<number, { chkTotal: number; chkDone: number; comments: number; links: number }>
   /** La tarea abierta en el panel, para destacarla en el tablero. */
   selectedTaskId: number | null
   onTaskClick: (t: Task) => void

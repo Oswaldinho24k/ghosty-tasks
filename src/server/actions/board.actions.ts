@@ -430,6 +430,61 @@ const addMember = defineAction({
   },
 });
 
+/* ── Desarrollo: PRs, issues y ligas de una tarea ─────────────────────────── */
+// El "development panel" de Jira / los attachments de Linear. Pegar la URL en la
+// descripción funciona una vez; esto además se ve desde el tablero y deja que la tarea
+// reaccione a lo que le pase al PR.
+
+/** "https://github.com/dueño/repo/pull/165" → {kind:"pr", ref:"dueño/repo#165"} */
+function classifyLink(url: string): { kind: string; ref: string | null } {
+  const m = url.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/(pull|issues)\/(\d+)/i);
+  if (m) return { kind: m[3].toLowerCase() === "pull" ? "pr" : "issue", ref: `${m[1]}/${m[2]}#${m[4]}` };
+  return { kind: "url", ref: null };
+}
+
+const linkTask = defineAction({
+  name: "link_task",
+  description:
+    "Cuelga un pull request, un issue o una liga de una tarea. Úsala SIEMPRE que la tarea nazca de un PR o un issue: aparece como chip en el tablero y en el panel, en vez de perderse dentro del texto de la descripción.",
+  schema: {
+    id: { type: "string", description: 'La tarea ("GStudio-6", "#6" o 6).', required: true },
+    url: { type: "string", description: "La URL completa.", required: true },
+    title: { type: "string", description: "Título corto de lo que se enlaza." },
+    state: { type: "string", description: "Estado si lo sabes: open, draft, merged, closed." },
+  },
+  async run(ctx, input: { id: string; url: string; title?: string; state?: string }) {
+    const t = await taskOf(ctx.projectId, input.id);
+    const url = String(input.url).trim();
+    if (!/^https?:\/\//i.test(url)) throw new ActionInputError("la url tiene que empezar con http(s)://");
+    const { kind, ref } = classifyLink(url);
+    await dbq(
+      `INSERT INTO task_links (task_id, kind, url, ref, title, state, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(task_id, url) DO UPDATE SET title = COALESCE(excluded.title, task_links.title),
+                                               state = COALESCE(excluded.state, task_links.state),
+                                               updated_at = unixepoch()`,
+      [num(t.id), kind, url, ref, input.title ?? null, input.state ?? null, ctx.sub]
+    );
+    const { publish, ch } = await import("../bus.server");
+    publish(ch.project(ctx.projectId), { t: "task:updated", id: num(t.id) } as never);
+    return { ok: true, linked: ref ?? url, kind };
+  },
+});
+
+const unlinkTask = defineAction({
+  name: "unlink_task",
+  description: "Quita una liga de una tarea.",
+  schema: {
+    id: { type: "string", description: "La tarea.", required: true },
+    url: { type: "string", description: "La URL a quitar.", required: true },
+  },
+  async run(ctx, input: { id: string; url: string }) {
+    const t = await taskOf(ctx.projectId, input.id);
+    await dbq("DELETE FROM task_links WHERE task_id = ? AND url = ?", [num(t.id), String(input.url)]);
+    return { ok: true };
+  },
+});
+
 /* ── Acciones de ESPACIO ──────────────────────────────────────────────────── */
 // Por encima del tablero: listar los que hay y crear uno. Van con `scope: "workspace"`
 // porque el token del agente fija un `projectId` y "créame un tablero" no puede tener uno
@@ -475,6 +530,8 @@ export const ACTIONS: Action<never, unknown>[] = [
   addChecklistItem,
   addMember,
   deleteTask,
+  linkTask,
+  unlinkTask,
   listBoards,
   createBoard,
 ] as unknown as Action<never, unknown>[];

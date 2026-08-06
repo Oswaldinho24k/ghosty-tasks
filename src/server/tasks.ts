@@ -46,6 +46,10 @@ export const getTaskDetailFn = createServerFn({ method: "GET" })
     const activities = await dbq("SELECT * FROM task_activities WHERE task_id = ? ORDER BY created_at ASC", [data.id]);
     const labels = await dbq("SELECT label, color FROM task_labels WHERE task_id = ?", [data.id]);
     const subtasks = await dbq("SELECT * FROM task_tasks WHERE parent_id = ? ORDER BY position ASC", [data.id]);
+    const links = await dbq(
+      "SELECT kind, url, ref, title, state, updated_at FROM task_links WHERE task_id = ? ORDER BY created_at",
+      [data.id]
+    );
 
     return {
       task,
@@ -77,6 +81,14 @@ export const getTaskDetailFn = createServerFn({ method: "GET" })
       })),
       labels: labels.map((r) => ({ label: r.label ?? "", color: r.color ?? "#6b7280" })),
       subtasks: subtasks.map(rowToTask),
+      links: links.map((r) => ({
+        kind: r.kind ?? "url",
+        url: r.url ?? "",
+        ref: r.ref,
+        title: r.title,
+        state: r.state,
+        updated_at: num(r.updated_at),
+      })),
     };
   });
 

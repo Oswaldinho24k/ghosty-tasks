@@ -1,6 +1,6 @@
 import type { Task } from '../server/projects'
 import { MemberAvatar } from './MemberAvatar'
-import { CheckSquare, Calendar } from 'lucide-react'
+import { CheckSquare, Calendar, MessageCircle, GitPullRequest } from 'lucide-react'
 import { taskRef } from '../utils/taskRef'
 import { useProject } from '../utils/projectContext'
 import { priorityColor } from '../utils/priority'
@@ -11,8 +11,6 @@ type Member = { sub: string; name: string; avatar: string }
 export function TaskCard({
   task,
   members,
-  checklistTotal,
-  checklistDone,
   onClick,
   onAskAgent,
   projectName,
@@ -23,8 +21,6 @@ export function TaskCard({
 }: {
   task: Task
   members: Member[]
-  checklistTotal?: number
-  checklistDone?: number
   onClick: () => void
   /** Abre el chat con la referencia ya escrita: hablar de una tarjeta sin teclear su id. */
   onAskAgent?: (ref: string) => void
@@ -34,14 +30,18 @@ export function TaskCard({
   onDragEnd?: () => void
   isDragging?: boolean
 }) {
-  const { taskLabels, online, selectedTaskId } = useProject()
+  const { taskLabels, online, selectedTaskId, counts } = useProject()
+  const c = counts[task.id]
   const abierta = selectedTaskId === task.id
   const labels = taskLabels[task.id] ?? []
   const assignee = members.find((m) => m.sub === task.assignee_sub)
   const hasDue = task.due_date != null
   const dueDate = hasDue ? new Date(task.due_date! * 1000) : null
   const level = dueDate ? dueLevel(dueDate, task.status) : null
-  const hasChecklist = (checklistTotal ?? 0) > 0
+  // El prop existía y nadie lo pasaba nunca: la fuente real son los contadores del shell.
+  const chkTotal = c?.chkTotal ?? 0
+  const chkDone = c?.chkDone ?? 0
+  const hasChecklist = chkTotal > 0
 
   return (
     <div
@@ -72,7 +72,13 @@ export function TaskCard({
       )}
 
       <div className="flex items-start gap-2">
-        <p className={`flex-1 text-sm font-medium leading-snug text-ink ${task.status === 'done' ? 'line-through text-muted' : ''}`}>
+        {/* Recortado a 3 líneas, como Linear y Jira: un título largo —los que escribe el
+            agente citando un PR— rompía la altura de la columna y empujaba todo lo demás
+            fuera de la vista. El completo se lee en el panel. */}
+        <p
+          title={task.title}
+          className={`line-clamp-3 flex-1 text-sm font-medium leading-snug text-ink ${task.status === 'done' ? 'line-through text-muted' : ''}`}
+        >
           {task.title}
         </p>
         {onAskAgent && (
@@ -113,9 +119,22 @@ export function TaskCard({
           {hasChecklist && (
             <span className="inline-flex items-center gap-0.5 text-xs text-muted">
               <CheckSquare size={11} />
-              {checklistDone}/{checklistTotal}
+              {chkDone}/{chkTotal}
             </span>
           )}
+          {/* Comentarios y ligas: los badges de tarjeta de Trello/Jira. Sólo si hay. */}
+          {c?.comments ? (
+            <span className="inline-flex items-center gap-0.5 text-xs text-muted">
+              <MessageCircle size={11} />
+              {c.comments}
+            </span>
+          ) : null}
+          {c?.links ? (
+            <span className="inline-flex items-center gap-0.5 text-xs text-muted" title="Pull requests, issues y ligas">
+              <GitPullRequest size={11} />
+              {c.links}
+            </span>
+          ) : null}
           {dueDate && level && (
             // El punto NO es la prioridad (ésa es la franja de arriba): dice qué tan
             // cerca está la fecha. Rojo hoy/vencida, ámbar dentro de la semana, gris

@@ -130,6 +130,18 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
        WHERE m.project_id = ?`,
       [project.id]
     );
+    // Contadores por tarjeta (checklist, comentarios, ligas). El badge de checklist existía
+    // en TaskCard desde siempre y NADIE le pasaba los datos, así que no se veía nunca.
+    // Van en tres agregados y no en un JOIN gigante: cada uno es un índice ya existente.
+    const counts = await dbq(
+      `SELECT t.id AS id,
+              (SELECT COUNT(*) FROM task_checklist_items c WHERE c.task_id = t.id) AS chk_total,
+              (SELECT COUNT(*) FROM task_checklist_items c WHERE c.task_id = t.id AND c.done = 1) AS chk_done,
+              (SELECT COUNT(*) FROM task_comments m WHERE m.task_id = t.id) AS comments,
+              (SELECT COUNT(*) FROM task_links l WHERE l.task_id = t.id) AS links
+         FROM task_tasks t WHERE t.project_id = ? AND t.parent_id IS NULL AND COALESCE(t.archived,0) = 0`,
+      [project.id]
+    );
     const userRow = await dbq("SELECT is_owner FROM gc_users WHERE sub = ?", [sub]);
     const isOwner = num(userRow[0]?.is_owner) === 1;
     // Ver es de todo el workspace; participar, de los miembros del tablero.
@@ -147,6 +159,12 @@ export const getProjectShellFn = createServerFn({ method: "GET" })
         handle: r.handle ?? "",
         role: r.role ?? "member",
       })),
+      counts: Object.fromEntries(
+        counts.map((r) => [
+          num(r.id),
+          { chkTotal: num(r.chk_total), chkDone: num(r.chk_done), comments: num(r.comments), links: num(r.links) },
+        ])
+      ),
       currentSub: sub,
       isOwner,
       canEdit,
