@@ -24,12 +24,15 @@ function BoardView() {
   }
 
   function setFilters(f: Filters) {
+    // La forma de actualizador CONSERVA `task`: filtrar no puede cerrar la tarea que tienes
+    // abierta. Con un objeto literal se perdería en cada tecla del buscador.
     navigate({
-      search: {
+      search: (prev) => ({
+        ...prev,
         q: f.q || undefined,
         priority: f.priorities.length ? f.priorities.join(',') : undefined,
         assignee: f.assignees.length ? f.assignees.join(',') : undefined,
-      },
+      }),
       replace: true,
     })
   }

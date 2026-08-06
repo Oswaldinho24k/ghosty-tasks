@@ -28,12 +28,14 @@ function ListView() {
   }
 
   function setFilters(f: Filters) {
+    // Actualizador, no literal: conserva `task` (ver el gemelo en p.$slug.board.tsx).
     navigate({
-      search: {
+      search: (prev) => ({
+        ...prev,
         q: f.q || undefined,
         priority: f.priorities.length ? f.priorities.join(',') : undefined,
         assignee: f.assignees.length ? f.assignees.join(',') : undefined,
-      },
+      }),
       replace: true,
     })
   }

@@ -21,7 +21,7 @@ export const Route = createFileRoute('/setup')({
     if (!user) throw redirect({ to: '/login' })
     const projects = await listProjectsFn()
     if (projects.length > 0) {
-      throw redirect({ to: '/p/$slug/board', params: { slug: projects[0].slug }, search: { q: undefined, priority: undefined, assignee: undefined } })
+      throw redirect({ to: '/p/$slug/board', params: { slug: projects[0].slug }, search: { q: undefined, priority: undefined, assignee: undefined, task: undefined } })
     }
     return { user }
   },
@@ -43,7 +43,7 @@ function Setup() {
     setError(null)
     try {
       const project = await createProjectFn({ data: { name: name.trim(), icon, color } })
-      router.navigate({ to: '/p/$slug/board', params: { slug: project.slug }, search: { q: undefined, priority: undefined, assignee: undefined } })
+      router.navigate({ to: '/p/$slug/board', params: { slug: project.slug }, search: { q: undefined, priority: undefined, assignee: undefined, task: undefined } })
     } catch (e) {
       setError(String(e))
       setBusy(false)

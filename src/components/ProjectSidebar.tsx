@@ -59,7 +59,7 @@ export function ProjectSidebar({
     setNewName('')
     setCreating(false)
     setBusy(false)
-    router.navigate({ to: '/p/$slug/board', params: { slug: project.slug }, search: { q: undefined, priority: undefined, assignee: undefined } })
+    router.navigate({ to: '/p/$slug/board', params: { slug: project.slug }, search: { q: undefined, priority: undefined, assignee: undefined, task: undefined } })
   }
 
   function toggleScheme() {
@@ -88,7 +88,7 @@ export function ProjectSidebar({
               <Link
                 to="/p/$slug/board"
                 params={{ slug: p.slug }}
-                search={{ q: undefined, priority: undefined, assignee: undefined }}
+                search={{ q: undefined, priority: undefined, assignee: undefined, task: undefined }}
                 onClick={onClose}
                 className={`mx-1 flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors
                   ${active ? 'bg-brand/10 font-medium text-brand' : 'text-ink hover:bg-surface-3'}`}
@@ -105,7 +105,7 @@ export function ProjectSidebar({
                       key={view}
                       to={`/p/$slug/${view}` as '/p/$slug/board'}
                       params={{ slug: p.slug }}
-                      search={{ q: undefined, priority: undefined, assignee: undefined }}
+                      search={{ q: undefined, priority: undefined, assignee: undefined, task: undefined }}
                       onClick={onClose}
                       className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors
                         ${currentView === view ? 'bg-brand/10 font-medium text-brand' : 'text-muted hover:bg-surface-3 hover:text-ink'}`}
