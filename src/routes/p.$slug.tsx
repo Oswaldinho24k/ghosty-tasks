@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, notFound, redirect } from '@tanstack/react-router'
+import { createFileRoute, Outlet, notFound, redirect, useRouter } from '@tanstack/react-router'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Settings, Menu, Plus } from 'lucide-react'
 import { getProjectShellFn, listProjectsFn } from '../server/projects'
@@ -61,16 +61,27 @@ function ProjectShell() {
   // tablero con la misma liga tiene que reabrir, y una tarea de otro proyecto simplemente no
   // resuelve (el panel pide por (taskId, projectId)).
   const deepTask = Route.useSearch().task
-  const navigate = Route.useNavigate()
+  const router = useRouter()
   useEffect(() => {
     if (deepTask) setSelectedTaskId(deepTask)
   }, [deepTask, slug])
   // Cerrar el panel BORRA el `?task=`. Si no, la URL sigue diciendo que esa tarea está
   // abierta —recargar la reabriría— y copiarla mandaría a alguien a algo que ya cerraste.
+  //
+  // ⚠️ Va por `router.navigate` con el pathname ACTUAL, no por `Route.useNavigate()`. Ése
+  // navega relativo a ESTA ruta, que es el padre `/p/$slug`: pasarle sólo `search` reescribía
+  // la URL a `/p/gstudio` y **se llevaba por delante el `/board`** — el tablero desaparecía
+  // y quedaba el panel flotando sobre un vacío. Limpiar un parámetro no puede cambiar de
+  // pantalla.
   const closeTask = useCallback(() => {
     setSelectedTaskId(null)
-    if (deepTask) navigate({ search: (prev) => ({ ...prev, task: undefined }), replace: true })
-  }, [deepTask, navigate])
+    if (deepTask)
+      router.navigate({
+        to: router.state.location.pathname,
+        search: (prev: Record<string, unknown>) => ({ ...prev, task: undefined }),
+        replace: true,
+      })
+  }, [deepTask, router])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsModalOpen, setSettingsModalOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
