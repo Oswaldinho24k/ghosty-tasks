@@ -108,6 +108,14 @@ html, body {
 /* Editor de texto enriquecido (TipTap). Calcado de Ghosty Teams para que un mismo
    contenido se vea igual en los dos productos. */
 .ProseMirror { outline: none; }
+/* Un enlace tiene que VERSE como enlace. Sin esto existía la marca <a> pero se leía igual
+   que el texto de al lado, así que nadie lo pulsaba. */
+.ProseMirror a {
+  color: var(--color-brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
 .ProseMirror p { margin: 0; }
 .ProseMirror > * + * { margin-top: 0.35rem; }
 .ProseMirror ul, .ProseMirror ol { padding-left: 1.25rem; }
