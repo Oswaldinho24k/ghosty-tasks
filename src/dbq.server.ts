@@ -8,9 +8,39 @@
 // API pipeline de sqld: POST /v2/pipeline con header x-namespace; body
 // { requests: [{type:"execute", stmt:{sql,args}}, {type:"close"}] }.
 import { currentNamespace } from "./server/tenant.server";
+import { createPrivateKey, sign as cryptoSign } from "node:crypto";
 
 const SQLD_URL = process.env.SQLD_URL ?? "http://172.20.0.1:8100";
-const SQLD_AUTH = process.env.SQLD_AUTH_TOKEN ?? "";
+/**
+ * Clave privada Ed25519 (base64) con la que se firma UN token por namespace.
+ *
+ * ⚠️ Desde que sqld exige auth (2026-08-17) no existe un token compartido: en sqld el
+ * claim `id` es lo ÚNICO que acota un token a un namespace, así que un token sin ese
+ * claim entrega la instancia ENTERA — o sea los datos de todos los workspaces. Por eso
+ * se firma uno por petición, acotado y con minutos de vida, igual que en Teams
+ * (`ghosty-teams/src/dbq.server.ts`). El viejo `SQLD_AUTH_TOKEN` estático se fue: como
+ * un proceso sirve a todos los tenants, ni siquiera podía ser correcto.
+ */
+const SQLD_JWT_PRIVATE_KEY = process.env.SQLD_JWT_PRIVATE_KEY ?? "";
+
+/** JWT acotado a UN namespace. El `id` se construye aquí y nunca se acepta de fuera. */
+export function tokenPara(namespace: string): string {
+  if (!SQLD_JWT_PRIVATE_KEY) return "";
+  if (!namespace) throw new Error("sqld: token sin namespace sería un token maestro");
+  const raw = Buffer.from(SQLD_JWT_PRIVATE_KEY, "base64");
+  const pkcs8 = Buffer.concat([
+    Buffer.from("302e020100300506032b657004220420", "hex"),
+    raw.subarray(0, 32),
+  ]);
+  const key = createPrivateKey({ key: pkcs8, format: "der", type: "pkcs8" });
+  const b64url = (b: Buffer | string) => Buffer.from(b).toString("base64url");
+  const header = b64url(JSON.stringify({ alg: "EdDSA", typ: "JWT" }));
+  const payload = b64url(
+    JSON.stringify({ id: namespace, a: "rw", exp: Math.floor(Date.now() / 1000) + 600 }),
+  );
+  const firmado = `${header}.${payload}`;
+  return `${firmado}.${b64url(cryptoSign(null, Buffer.from(firmado), key))}`;
+}
 
 export type Row = Record<string, string | null>;
 
@@ -40,11 +70,13 @@ interface PipelineResponse {
 }
 
 async function pipeline(stmts: { sql: string; args?: unknown[] }[]): Promise<PipelineResponse> {
+  const ns = await currentNamespace();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "x-namespace": await currentNamespace(),
+    "x-namespace": ns,
   };
-  if (SQLD_AUTH) headers.Authorization = `Bearer ${SQLD_AUTH}`;
+  const token = tokenPara(ns);
+  if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${SQLD_URL}/v2/pipeline`, {
     method: "POST",
     headers,
