@@ -9,6 +9,12 @@
 // { requests: [{type:"execute", stmt:{sql,args}}, {type:"close"}] }.
 import { currentNamespace } from "./server/tenant.server";
 import { createPrivateKey, sign as cryptoSign } from "node:crypto";
+import { assertEnv } from "./server/env-check.server";
+
+// Se engancha AQUÍ porque todo el servidor pasa por la base de datos: es el módulo que
+// garantiza que la comprobación corra sin depender de un hook de arranque del framework.
+assertEnv();
+
 
 const SQLD_URL = process.env.SQLD_URL ?? "http://172.20.0.1:8100";
 /**
