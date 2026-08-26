@@ -43,7 +43,16 @@ export const Route = createFileRoute('/p/$slug')({
     }
     return { shell, projects }
   },
-  component: ProjectShell,
+  // ⚠️ `key={slug}` NO es cosmético. ProjectShell siembra TODO su estado con
+  // `useState(initial.…)`, y useState sólo lee su argumento en el primer render. Al navegar
+  // entre proyectos el router REUSA este componente (misma ruta, otro param): el loader traía
+  // el proyecto nuevo y el estado seguía con las tareas del anterior — el board de GStudio se
+  // pintaba bajo Academia AFS, con sus refs `GStudio-N` y sin etiquetas (ésas sí se
+  // recargaban, por el efecto de abajo, y salían vacías). Remontar por slug lo reinicia todo.
+  component: () => {
+    const { slug } = Route.useParams()
+    return <ProjectShell key={slug} />
+  },
 })
 
 function ProjectShell() {
