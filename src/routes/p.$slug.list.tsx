@@ -4,6 +4,7 @@ import { MemberAvatar } from '../components/MemberAvatar'
 import { FilterBar, type Filters, applyFilters } from '../components/FilterBar'
 import { Check, Calendar } from 'lucide-react'
 import { useProject } from '../utils/projectContext'
+import { dueDayFromTs } from '../utils/due'
 
 export const Route = createFileRoute('/p/$slug/list')({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -67,7 +68,7 @@ function ListView() {
             {sorted.map((task) => {
               const col = colMap.get(task.column_id)
               const assignee = members.find((m) => m.sub === task.assignee_sub)
-              const dueDate = task.due_date ? new Date(task.due_date * 1000) : null
+              const dueDate = task.due_date ? dueDayFromTs(task.due_date) : null
               const overdue = dueDate && dueDate < new Date() && task.status !== 'done'
 
               return (

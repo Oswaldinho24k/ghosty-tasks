@@ -290,7 +290,7 @@ export function TaskDetailPanel({
     return new Date(ts * 1000).toISOString().slice(0, 10)
   }
   async function changeDueDate(dateStr: string) {
-    const ts = dateStr ? Math.floor(new Date(dateStr + 'T00:00:00').getTime() / 1000) : null
+    const ts = dateStr ? Math.floor(new Date(dateStr + 'T00:00:00Z').getTime() / 1000) : null
     await updateTaskFn({ data: { id: taskId, project_id: projectId, due_date: ts } })
     setDetail((d) => d ? { ...d, task: { ...d.task, due_date: ts } } : d)
     onTaskChanged?.(taskId, { due_date: ts })

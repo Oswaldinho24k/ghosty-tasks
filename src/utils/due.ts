@@ -60,3 +60,12 @@ export function dueLabel(level: DueLevel, due: Date, now: Date = new Date()): st
   if (level === 'far') return `Vence en ${daysUntil(due, now)} días`
   return LABELS[level]
 }
+
+// El vencimiento es un DÍA, no un instante. El timestamp se guarda como medianoche UTC,
+// así que interpretarlo en la zona local corre el día hacia atrás (en México, -6h): la
+// miniatura decía 29 y el detalle 30 para la misma tarea. Se convierte UNA vez aquí, a
+// una fecha local con el mismo día civil, y todo lo demás (formato y daysUntil) ya casa.
+export function dueDayFromTs(ts: number): Date {
+  const utc = new Date(ts * 1000)
+  return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate())
+}

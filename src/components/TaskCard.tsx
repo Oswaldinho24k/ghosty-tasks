@@ -4,7 +4,7 @@ import { CheckSquare, Calendar, MessageCircle, GitPullRequest } from 'lucide-rea
 import { taskRef } from '../utils/taskRef'
 import { useProject } from '../utils/projectContext'
 import { priorityColor } from '../utils/priority'
-import { dueColor, dueLabel, dueLevel } from '../utils/due'
+import { dueColor, dueDayFromTs, dueLabel, dueLevel } from '../utils/due'
 
 type Member = { sub: string; name: string; avatar: string }
 
@@ -36,7 +36,7 @@ export function TaskCard({
   const labels = taskLabels[task.id] ?? []
   const assignee = members.find((m) => m.sub === task.assignee_sub)
   const hasDue = task.due_date != null
-  const dueDate = hasDue ? new Date(task.due_date! * 1000) : null
+  const dueDate = hasDue ? dueDayFromTs(task.due_date!) : null
   const level = dueDate ? dueLevel(dueDate, task.status) : null
   // El prop existía y nadie lo pasaba nunca: la fuente real son los contadores del shell.
   const chkTotal = c?.chkTotal ?? 0
