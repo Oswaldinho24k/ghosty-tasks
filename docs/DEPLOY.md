@@ -108,7 +108,7 @@ secreto). Si sigue apareciendo el error, causas posibles:
 ## Deploy real (2026-07-28): caja propia en el host OVH
 
 Ghosty Tasks vive en **https://tasks.ghosty.studio**, en una caja del host OVH
-(template `node`, **1 vCPU / 512 MB**, `sb_c4cec06e-32ac-4d93-b72e-0f21e853ad38`).
+(template `node`, **1 vCPU / 512 MB**, `sb_dd5f2071-f947-437b-aabf-ad2bf482fcee`).
 La caja **duerme por inactividad** (`suspendOnIdle`, TTL 900s) y despierta sola
 con el primer request público — el proxy del host hace `acquire` antes de rutear.
 

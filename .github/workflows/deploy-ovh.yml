@@ -51,7 +51,7 @@ jobs:
       # /etc/gs-deploy/env, igual que en el pipeline de ghosty-studio.
       - name: Deploy a la caja
         env:
-          SID: sb_c4cec06e-32ac-4d93-b72e-0f21e853ad38
+          SID: sb_dd5f2071-f947-437b-aabf-ad2bf482fcee
         run: |
           set -euo pipefail
           . /etc/gs-deploy/env   # SANDBOX_HOST_TOKEN
