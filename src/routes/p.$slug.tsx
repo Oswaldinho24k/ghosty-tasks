@@ -4,6 +4,7 @@ import { Settings, Menu, Plus } from 'lucide-react'
 import { getProjectShellFn, listProjectsFn } from '../server/projects'
 import type { Task, Column, Project } from '../server/projects'
 import { getAllTaskLabelsFn } from '../server/labels'
+import { factoryAssigneesFn } from '../server/agent'
 import type { Label } from '../server/labels'
 import { ProjectSidebar } from '../components/ProjectSidebar'
 import { AnimatePresence, motion } from 'motion/react'
@@ -62,6 +63,14 @@ function ProjectShell() {
   const [projects, setProjects] = useState(initialProjects)
   const [project, setProject] = useState(initial.project)
   const [projectMembers, setMembers] = useState(initial.members)
+  // Agentes asignables en este tablero (hoy `@plan` de la Software Factory, sólo en su
+  // tablero). Van a la lista de asignar y a la de pintar caras, NUNCA a la de miembros.
+  const [agentMembers, setAgentMembers] = useState<typeof initial.members>([])
+  useEffect(() => {
+    factoryAssigneesFn({ data: { projectId: initial.project.id } })
+      .then((a) => setAgentMembers(a.map((x) => ({ ...x, role: 'agent' })) as unknown as typeof initial.members))
+      .catch(() => setAgentMembers([]))
+  }, [initial.project.id])
   const [columns, setColumns] = useState(initial.columns)
   const [tasks, setTasks] = useState(initial.tasks)
   const [taskLabels, setTaskLabels] = useState<Record<number, Label[]>>({})
@@ -122,8 +131,9 @@ function ProjectShell() {
       team.map((t) => [t.sub, { sub: t.sub, name: t.name, avatar: t.avatar, handle: t.handle, role: 'member' } as M])
     )
     for (const m of projectMembers) bySub.set(m.sub, { ...bySub.get(m.sub), ...m })
+    for (const a of agentMembers) bySub.set(a.sub, a)
     return [...bySub.values()]
-  }, [team, projectMembers])
+  }, [team, projectMembers, agentMembers])
 
   // Ver es de todo el workspace; participar, de los miembros del tablero.
   const canEdit = initial.canEdit ?? true
@@ -392,7 +402,7 @@ function ProjectShell() {
             key={selectedTaskId}
             taskId={selectedTaskId}
             projectId={initial.project.id}
-            members={projectMembers}
+            members={[...projectMembers, ...agentMembers]}
             onClose={closeTask}
             onDeleted={(id) => {
               setTasks((prev) => prev.filter((t) => t.id !== id))

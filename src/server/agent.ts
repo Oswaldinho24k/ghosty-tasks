@@ -27,6 +27,18 @@ export const listAgentsFn = createServerFn({ method: 'GET' }).handler(async () =
   return agents.map((a) => ({ handle: a.handle, name: a.name, avatar: a.avatar }))
 })
 
+/**
+ * Agentes que se pueden ASIGNAR a una tarea de este tablero. Hoy sólo `@plan` de la Software
+ * Factory, y sólo en el tablero de la fábrica: asignarle una tarea abre una corrida en Teams.
+ */
+export const factoryAssigneesFn = createServerFn({ method: 'GET' })
+  .validator((d: { projectId: number }) => d)
+  .handler(async ({ data }) => {
+    await ensureSchema()
+    const { factoryAssignees } = await import('./factory.server')
+    return factoryAssignees(Number(data.projectId))
+  })
+
 /** Agente elegido para un tablero. Se guarda en la DB, no en el navegador. */
 export const getProjectAgentFn = createServerFn({ method: 'GET' })
   .validator((d: { projectId: number }) => d)
