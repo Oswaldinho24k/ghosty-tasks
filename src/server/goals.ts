@@ -33,7 +33,7 @@ async function getUserSub(): Promise<string> {
   return user.sub;
 }
 
-function rowToGoal(r: Record<string, string | null>): Goal {
+export function rowToGoal(r: Record<string, string | null>): Goal {
   return {
     id: num(r.id),
     project_id: num(r.project_id),

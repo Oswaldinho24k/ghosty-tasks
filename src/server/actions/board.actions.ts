@@ -207,8 +207,9 @@ const createTask = defineAction({
     },
     labels: { type: "string[]", description: "Etiquetas a ponerle" },
     due: { type: "string", description: 'Fecha de vencimiento: AAAA-MM-DD, "hoy" o "mañana"' },
+    goal: { type: "number", description: "id de la épica (create_goal) a la que pertenece" },
   },
-  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee?: string; labels?: string[]; due?: string }) {
+  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee?: string; labels?: string[]; due?: string; goal?: number }) {
     let columnId: number;
     if (input.column) {
       columnId = (await columnByName(ctx.projectId, input.column)).id;
@@ -239,6 +240,7 @@ const createTask = defineAction({
     if (input.labels?.length) {
       await setLabelsOn(ctx, task.id, input.labels, []);
     }
+    if (input.goal) await linkToGoal(ctx.projectId, Number(input.goal), task.id);
     // Se devuelve a QUIÉN quedó asignada (no lo que se pidió): si el agente cuenta que la
     // asignó, que sea porque el tablero lo dice.
     return {
@@ -583,6 +585,36 @@ const listBoards = defineAction({
   },
 });
 
+// Épicas ligeras (`task_goals`, las mismas de la UI de Metas). Las usa el sprint de la
+// Software Factory: una épica y sus tickets ligados.
+async function linkToGoal(projectId: number, goalId: number, taskId: number): Promise<void> {
+  const g = await dbq("SELECT id FROM task_goals WHERE id = ? AND project_id = ?", [goalId, projectId]);
+  if (!g[0]) throw new ActionInputError(`la épica ${goalId} no es de este tablero`);
+  await dbq("INSERT OR IGNORE INTO task_goal_tasks (goal_id, task_id) VALUES (?, ?)", [goalId, taskId]);
+  const { publish, ch } = await import("../bus.server");
+  publish(ch.project(projectId), { t: "goal:updated", id: goalId, project_id: projectId } as never);
+}
+
+const createGoal = defineAction({
+  name: "create_goal",
+  description: "Crea una épica (meta) en el tablero; luego liga tareas con create_task(goal).",
+  schema: {
+    title: { type: "string", description: "Título de la épica", required: true },
+    description: { type: "string", description: "Objetivo, en markdown" },
+  },
+  async run(ctx, input: { title: string; description?: string }) {
+    const rows = await dbq(
+      "INSERT INTO task_goals (project_id, title, description, due_date, created_by, created_at) VALUES (?, ?, ?, NULL, ?, unixepoch()) RETURNING *",
+      [ctx.projectId, input.title, input.description ?? null, ctx.sub],
+    );
+    const { rowToGoal } = await import("../goals");
+    const goal = rowToGoal({ ...rows[0], total_tasks: "0", completed_tasks: "0" });
+    const { publish, ch } = await import("../bus.server");
+    publish(ch.project(ctx.projectId), { t: "goal:created", goal });
+    return { id: goal.id, title: goal.title };
+  },
+});
+
 const createBoard = defineAction({
   name: "create_board",
   description:
@@ -603,6 +635,7 @@ export const ACTIONS: Action<never, unknown>[] = [
   findTasks,
   getTask,
   createTask,
+  createGoal,
   moveTask,
   updateTask,
   setLabels,
