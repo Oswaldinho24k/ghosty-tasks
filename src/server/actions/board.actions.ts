@@ -607,8 +607,20 @@ const createGoal = defineAction({
       "INSERT INTO task_goals (project_id, title, description, due_date, created_by, created_at) VALUES (?, ?, ?, NULL, ?, unixepoch()) RETURNING *",
       [ctx.projectId, input.title, input.description ?? null, ctx.sub],
     );
-    const { rowToGoal } = await import("../goals");
-    const goal = rowToGoal({ ...rows[0], total_tasks: "0", completed_tasks: "0" });
+    // Misma forma que `rowToGoal` de goals.ts (no se importa: ese módulo también lo usa el cliente).
+    const r = rows[0];
+    const goal = {
+      id: num(r.id),
+      project_id: num(r.project_id),
+      title: String(r.title ?? ""),
+      description: r.description ?? null,
+      status: "open" as const,
+      due_date: null,
+      created_by: String(r.created_by ?? ""),
+      created_at: num(r.created_at),
+      total_tasks: 0,
+      completed_tasks: 0,
+    };
     const { publish, ch } = await import("../bus.server");
     publish(ch.project(ctx.projectId), { t: "goal:created", goal });
     return { id: goal.id, title: goal.title };
