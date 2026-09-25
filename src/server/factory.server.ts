@@ -28,12 +28,24 @@ export async function factoryConfig(): Promise<{ roomId?: number; boardId?: numb
 }
 
 /**
- * `@plan` como asignable, SÓLO en el tablero de la fábrica: Teams sigue la tarea (etiquetas,
- * columna, PR) llamando a Tasks con ese tablero, así que en otro no podría.
+ * `@plan` como asignable, SÓLO en un tablero de la fábrica: el de la instalación o el de un
+ * room con repos (`gt_room_board` + `gt_room_repos`; en Teams todo room con repos es fábrica).
+ * Teams sigue la tarea (etiquetas, columna, PR) con el tablero de SU room, así que en otro no
+ * podría.
  */
-export async function factoryAssignees(projectId: number) {
+async function isFactoryBoard(projectId: number): Promise<boolean> {
   const cfg = await factoryConfig()
-  if (!cfg?.boardId || Number(cfg.boardId) !== Number(projectId)) return []
+  if (!cfg) return false
+  if (cfg.boardId && Number(cfg.boardId) === Number(projectId)) return true
+  const rows = await dbq(
+    `SELECT 1 FROM gt_room_board b JOIN gt_room_repos r ON r.channel_id = b.channel_id WHERE b.project_id = ? LIMIT 1`,
+    [Number(projectId)],
+  ).catch(() => [])
+  return rows.length > 0
+}
+
+export async function factoryAssignees(projectId: number) {
+  if (!(await isFactoryBoard(projectId))) return []
   const rows = await dbq("SELECT name, avatar FROM gc_agents WHERE handle = 'plan' AND enabled = 1").catch(() => [])
   if (!rows[0]) return []
   return [{ sub: FACTORY_PLAN_SUB, name: '@plan', avatar: String(rows[0].avatar ?? ''), handle: 'plan' }]
