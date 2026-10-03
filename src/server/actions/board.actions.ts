@@ -207,8 +207,9 @@ const createTask = defineAction({
     },
     labels: { type: "string[]", description: "Etiquetas a ponerle" },
     due: { type: "string", description: 'Fecha de vencimiento: AAAA-MM-DD, "hoy" o "mañana"' },
+    goal: { type: "number", description: "id de la épica (create_goal) a la que pertenece" },
   },
-  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee?: string; labels?: string[]; due?: string }) {
+  async run(ctx, input: { title: string; column?: string; description?: string; priority?: string; assignee?: string; labels?: string[]; due?: string; goal?: number }) {
     let columnId: number;
     if (input.column) {
       columnId = (await columnByName(ctx.projectId, input.column)).id;
@@ -239,6 +240,7 @@ const createTask = defineAction({
     if (input.labels?.length) {
       await setLabelsOn(ctx, task.id, input.labels, []);
     }
+    if (input.goal) await linkToGoal(ctx.projectId, Number(input.goal), task.id);
     // Se devuelve a QUIÉN quedó asignada (no lo que se pidió): si el agente cuenta que la
     // asignó, que sea porque el tablero lo dice.
     return {
@@ -267,6 +269,48 @@ const moveTask = defineAction({
   },
 });
 
+// Leer una tarea COMPLETA. Faltaba: `list_board` y `find_tasks` devuelven título y estado
+// pero NO la descripción, así que al pedirle "enriquece la descripción" el agente no tenía
+// de dónde leerla, contestaba que estaba vacía y la reescribía desde cero, borrando lo que
+// había. Enriquecer es leer primero.
+const getTask = defineAction({
+  name: "get_task",
+  description:
+    "Devuelve una tarea completa: descripción, checklist, etiquetas, comentarios, subtareas y ligas. Úsala SIEMPRE antes de reescribir la descripción o cualquier campo largo — lo que devuelven list_board y find_tasks no incluye la descripción.",
+  schema: {
+    id: { type: "string", description: 'Referencia de la tarea, como aparece en la tarjeta ("GST-4"); también acepta el número', required: true },
+  },
+  async run(ctx, input: { id: string }) {
+    const t = await taskOf(ctx.projectId, input.id);
+    const id = num(t.id);
+    const [checklist, comments, labels, subtasks, links] = await Promise.all([
+      dbq("SELECT body, done FROM task_checklist_items WHERE task_id = ? ORDER BY position ASC", [id]),
+      dbq("SELECT sender_name, body, created_at FROM task_comments WHERE task_id = ? ORDER BY created_at ASC", [id]),
+      dbq("SELECT label FROM task_labels WHERE task_id = ?", [id]),
+      dbq("SELECT id, title, status FROM task_tasks WHERE parent_id = ? ORDER BY position ASC", [id]),
+      dbq("SELECT kind, url, ref, title, state FROM task_links WHERE task_id = ? ORDER BY created_at", [id]),
+    ]);
+    const proj = await dbq("SELECT name FROM task_projects WHERE id = ?", [ctx.projectId]);
+    return {
+      ref: taskRef(proj[0]?.name ?? "", id),
+      id,
+      title: t.title,
+      // Literal, en markdown y sin recortar: es el material que se va a enriquecer.
+      description: t.description ?? "",
+      description_empty: !(t.description ?? "").trim(),
+      status: t.status,
+      priority: t.priority,
+      assignee_sub: t.assignee_sub,
+      due_date: t.due_date != null ? num(t.due_date) : null,
+      labels: labels.map((l) => l.label),
+      checklist: checklist.map((c) => ({ body: c.body, done: num(c.done) === 1 })),
+      comments: comments.map((c) => ({ author: c.sender_name, body: c.body, at: num(c.created_at) })),
+      subtasks: subtasks.map((s) => ({ id: num(s.id), title: s.title, status: s.status })),
+      links: links.map((l) => ({ kind: l.kind, url: l.url, ref: l.ref, title: l.title, state: l.state })),
+    };
+  },
+});
+
 const updateTask = defineAction({
   name: "update_task",
   description: "Cambia campos de una tarea: título, descripción, prioridad, estado o a quién está asignada.",
@@ -275,7 +319,13 @@ const updateTask = defineAction({
     title: { type: "string", description: "Nuevo título" },
     description: {
       type: "string",
-      description: "Nueva descripción en MARKDOWN (no HTML)",
+      description:
+        "Nueva descripción COMPLETA en MARKDOWN (no HTML). Pisa la que había: si te piden enriquecerla, lee primero get_task y manda el texto anterior más lo nuevo.",
+    },
+    replace_description: {
+      type: "boolean",
+      description:
+        "true para confirmar que pisas una descripción que ya tenía contenido. Sin esto se te devuelve la actual para que la incorpores.",
     },
     priority: { type: "string", description: "Prioridad", enum: PRIORITIES },
     status: { type: "string", description: "Estado", enum: ["open", "done"] },
@@ -288,9 +338,22 @@ const updateTask = defineAction({
       description: 'Vencimiento: AAAA-MM-DD, "hoy", "mañana" — o "none" para quitarlo',
     },
   },
-  async run(ctx, input: { id: string; title?: string; description?: string; priority?: string; status?: string; assignee?: string; due?: string }) {
+  async run(ctx, input: { id: string; title?: string; description?: string; replace_description?: boolean; priority?: string; status?: string; assignee?: string; due?: string }) {
     const t = await taskOf(ctx.projectId, input.id);
     const id = num(t.id);
+
+    // Red contra el borrado silencioso: pisar una descripción existente sin haberla leído
+    // es lo que convertía "enriquécela" en "bórrala y escribe otra". Se devuelve la actual
+    // en vez de fallar, así el agente puede fusionar en el mismo turno.
+    const current = (t.description ?? "").trim();
+    if (input.description !== undefined && current && !input.replace_description) {
+      return {
+        needs: "confirmation" as const,
+        reason:
+          "esta tarea YA tiene descripción. Incorpórala en tu texto y vuelve a llamar con replace_description=true, o usa comment_task si sólo quieres añadir contexto.",
+        current_description: t.description ?? "",
+      };
+    }
     let assignee: string | null | undefined;
     if (input.assignee === "none") assignee = null;
     else if (input.assignee) {
@@ -522,6 +585,48 @@ const listBoards = defineAction({
   },
 });
 
+// Épicas ligeras (`task_goals`, las mismas de la UI de Metas). Las usa el sprint de la
+// Software Factory: una épica y sus tickets ligados.
+async function linkToGoal(projectId: number, goalId: number, taskId: number): Promise<void> {
+  const g = await dbq("SELECT id FROM task_goals WHERE id = ? AND project_id = ?", [goalId, projectId]);
+  if (!g[0]) throw new ActionInputError(`la épica ${goalId} no es de este tablero`);
+  await dbq("INSERT OR IGNORE INTO task_goal_tasks (goal_id, task_id) VALUES (?, ?)", [goalId, taskId]);
+  const { publish, ch } = await import("../bus.server");
+  publish(ch.project(projectId), { t: "goal:updated", id: goalId, project_id: projectId } as never);
+}
+
+const createGoal = defineAction({
+  name: "create_goal",
+  description: "Crea una épica (meta) en el tablero; luego liga tareas con create_task(goal).",
+  schema: {
+    title: { type: "string", description: "Título de la épica", required: true },
+    description: { type: "string", description: "Objetivo, en markdown" },
+  },
+  async run(ctx, input: { title: string; description?: string }) {
+    const rows = await dbq(
+      "INSERT INTO task_goals (project_id, title, description, due_date, created_by, created_at) VALUES (?, ?, ?, NULL, ?, unixepoch()) RETURNING *",
+      [ctx.projectId, input.title, input.description ?? null, ctx.sub],
+    );
+    // Misma forma que `rowToGoal` de goals.ts (no se importa: ese módulo también lo usa el cliente).
+    const r = rows[0];
+    const goal = {
+      id: num(r.id),
+      project_id: num(r.project_id),
+      title: String(r.title ?? ""),
+      description: r.description ?? null,
+      status: "open" as const,
+      due_date: null,
+      created_by: String(r.created_by ?? ""),
+      created_at: num(r.created_at),
+      total_tasks: 0,
+      completed_tasks: 0,
+    };
+    const { publish, ch } = await import("../bus.server");
+    publish(ch.project(ctx.projectId), { t: "goal:created", goal });
+    return { id: goal.id, title: goal.title };
+  },
+});
+
 const createBoard = defineAction({
   name: "create_board",
   description:
@@ -540,7 +645,9 @@ const createBoard = defineAction({
 export const ACTIONS: Action<never, unknown>[] = [
   listBoard,
   findTasks,
+  getTask,
   createTask,
+  createGoal,
   moveTask,
   updateTask,
   setLabels,

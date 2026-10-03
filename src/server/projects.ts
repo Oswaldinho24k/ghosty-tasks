@@ -96,13 +96,23 @@ async function getUserSub(): Promise<string> {
 
 export const listProjectsFn = createServerFn({ method: "GET" }).handler(async () => {
   await ensureSchema();
-  const sub = await getUserSub();
+  await getUserSub(); // exige sesión; el alcance ya lo da el namespace del tenant
+  /*
+    Los tableros del WORKSPACE, no sólo los míos.
+
+    ⚠️ Esto listaba únicamente lo que uno creó o donde ya era miembro, y contradecía la
+    regla que el propio tablero aplica dos funciones más abajo: «ver es de todo el
+    workspace; participar, de los miembros del tablero». El efecto era que alguien recién
+    dado de alta entraba, veía la lista VACÍA y se le pedía crear su primer proyecto —
+    aunque su equipo ya tuviera tableros—, y no había ninguna forma de llegar a ellos:
+    la pantalla del tablero sí la habría dejado entrar, pero el enlace no existía.
+
+    La base es POR TENANT (namespace de sqld), así que «todas las filas» ES «las de este
+    workspace». No hay tableros privados: `task_projects` no tiene columna de visibilidad,
+    y el permiso fino sigue siendo `isProjectMember` para editar.
+  */
   const rows = await dbq(
-    `SELECT p.* FROM task_projects p
-     WHERE p.archived = 0
-       AND (p.created_by = ? OR EXISTS (SELECT 1 FROM task_project_members m WHERE m.project_id = p.id AND m.user_sub = ?))
-     ORDER BY p.created_at ASC`,
-    [sub, sub]
+    `SELECT * FROM task_projects WHERE archived = 0 ORDER BY created_at ASC`
   );
   return rows.map(rowToProject);
 });

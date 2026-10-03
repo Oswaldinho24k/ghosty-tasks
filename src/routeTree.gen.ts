@@ -13,6 +13,7 @@ import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DevLoginRouteImport } from './routes/dev-login'
+import { Route as BusyRouteImport } from './routes/busy'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PSlugRouteImport } from './routes/p.$slug'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
@@ -40,6 +41,11 @@ const LoginRoute = LoginRouteImport.update({
 const DevLoginRoute = DevLoginRouteImport.update({
   id: '/dev-login',
   path: '/dev-login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BusyRoute = BusyRouteImport.update({
+  id: '/busy',
+  path: '/busy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -85,6 +91,7 @@ const ApiAgentToolsRoute = ApiAgentToolsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/busy': typeof BusyRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
@@ -99,6 +106,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/busy': typeof BusyRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
@@ -114,6 +122,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/busy': typeof BusyRoute
   '/dev-login': typeof DevLoginRoute
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
@@ -130,6 +139,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/busy'
     | '/dev-login'
     | '/login'
     | '/settings'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/busy'
     | '/dev-login'
     | '/login'
     | '/settings'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/busy'
     | '/dev-login'
     | '/login'
     | '/settings'
@@ -173,6 +185,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BusyRoute: typeof BusyRoute
   DevLoginRoute: typeof DevLoginRoute
   LoginRoute: typeof LoginRoute
   SettingsRoute: typeof SettingsRoute
@@ -211,6 +224,13 @@ declare module '@tanstack/react-router' {
       path: '/dev-login'
       fullPath: '/dev-login'
       preLoaderRoute: typeof DevLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/busy': {
+      id: '/busy'
+      path: '/busy'
+      fullPath: '/busy'
+      preLoaderRoute: typeof BusyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -288,6 +308,7 @@ const PSlugRouteWithChildren = PSlugRoute._addFileChildren(PSlugRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BusyRoute: BusyRoute,
   DevLoginRoute: DevLoginRoute,
   LoginRoute: LoginRoute,
   SettingsRoute: SettingsRoute,

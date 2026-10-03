@@ -89,7 +89,9 @@ export type UpdateTaskInput = {
 
 export async function updateTask(sub: string, data: UpdateTaskInput): Promise<void> {
   await requireProjectMember(sub, data.project_id);
-  if (data.assignee_sub) await joinByAssignment(data.project_id, data.assignee_sub);
+  // Un agente asignado (`agent:plan`) no es persona: no entra como miembro del tablero.
+  const { isAgentSub, FACTORY_PLAN_SUB, notifyFactoryTask } = await import("../factory.server");
+  if (data.assignee_sub && !isAgentSub(data.assignee_sub)) await joinByAssignment(data.project_id, data.assignee_sub);
   const current = await dbq("SELECT * FROM task_tasks WHERE id = ?", [data.id]);
   if (!current[0]) throw new Error("task not found");
 
@@ -106,6 +108,17 @@ export async function updateTask(sub: string, data: UpdateTaskInput): Promise<vo
   if (data.assignee_sub !== undefined) {
     sets.push("assignee_sub = ?"); args.push(data.assignee_sub); patch.assignee_sub = data.assignee_sub;
     await track(data.id, sub, "assigned", current[0].assignee_sub, data.assignee_sub);
+    // Asignarla a @plan de la Software Factory abre una corrida en Teams (sin esperar).
+    if (data.assignee_sub === FACTORY_PLAN_SUB && current[0].assignee_sub !== FACTORY_PLAN_SUB) {
+      void notifyFactoryTask(
+        {
+          id: data.id,
+          title: String(data.title ?? current[0].title ?? ""),
+          description: (data.description ?? current[0].description ?? null) as string | null,
+        },
+        sub,
+      );
+    }
   }
   if (data.due_date !== undefined) { sets.push("due_date = ?"); args.push(data.due_date); patch.due_date = data.due_date; }
   if (data.status !== undefined) {

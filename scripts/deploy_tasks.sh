@@ -13,7 +13,7 @@ set -euo pipefail
 HOST="${HOST:-54.38.94.14}"
 KEY="${KEY:-$HOME/.ssh/id_rsa_ovh}"
 APP="${APP:-$(cd "$(dirname "$0")/.." && pwd)}"
-SID="${SID:-sb_c4cec06e-32ac-4d93-b72e-0f21e853ad38}"
+SID="${SID:-sb_dd5f2071-f947-437b-aabf-ad2bf482fcee}"
 SSH="ssh -i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 SCP="scp -i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 
