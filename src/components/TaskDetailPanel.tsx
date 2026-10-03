@@ -2,7 +2,8 @@ import { useEffect, useState, useRef } from 'react'
 import { X, Check, Plus, Trash2, ChevronDown, ChevronUp, Tag, MessageCircle, Target, Pencil, Layers, Calendar, GitPullRequest, CircleDot, Link2, ExternalLink } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import { toast } from 'sonner'
-import { getTaskDetailFn, updateTaskFn, deleteTaskFn, createTaskFn } from '../server/tasks'
+import { getTaskDetailFn, updateTaskFn, deleteTaskFn, createTaskFn, moveTaskToColumnEndFn } from '../server/tasks'
+import type { Column } from '../server/projects'
 import { addChecklistItemFn, updateChecklistItemFn, deleteChecklistItemFn } from '../server/checklist'
 import { getCommentsFn, addCommentFn, updateCommentFn, deleteCommentFn } from '../server/comments'
 import type { Comment } from '../server/comments'
@@ -53,6 +54,8 @@ export function TaskDetailPanel({
   settingsOpen,
   refreshKey,
   projectName,
+  columns,
+  onColumnChange,
 }: {
   taskId: number
   projectId: number
@@ -73,6 +76,8 @@ export function TaskDetailPanel({
   /** Cambia cuando llega un evento de ESTA tarea (p. ej. el agente le añadió checklist). */
   refreshKey?: number
   projectName?: string
+  columns?: Column[]
+  onColumnChange?: (taskId: number, columnId: number) => void
 }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -107,6 +112,9 @@ export function TaskDetailPanel({
   // Subtasks
   const [newSubtask, setNewSubtask] = useState('')
   const [addingSubtask, setAddingSubtask] = useState(false)
+
+  // Column picker
+  const [showColumnPicker, setShowColumnPicker] = useState(false)
 
   async function load() {
     try {
@@ -296,6 +304,14 @@ export function TaskDetailPanel({
     onTaskChanged?.(taskId, { due_date: ts })
   }
 
+  async function moveToColumn(columnId: number) {
+    if (!detail || columnId === detail.task.column_id) return
+    setShowColumnPicker(false)
+    await moveTaskToColumnEndFn({ data: { id: taskId, project_id: projectId, column_id: columnId } })
+    setDetail((d) => d ? { ...d, task: { ...d.task, column_id: columnId } } : d)
+    onColumnChange?.(taskId, columnId)
+  }
+
   // --- Subtasks ---
   async function addSubtask() {
     if (!newSubtask.trim() || !detail) return
@@ -469,6 +485,55 @@ export function TaskDetailPanel({
                 />
               </div>
             </div>
+
+            {/* Column picker */}
+            {columns && columns.length > 1 && (
+              <div className="relative">
+                <p className="mb-1 flex items-center gap-1 text-xs font-medium text-muted">
+                  <Layers size={12} />
+                  Columna
+                </p>
+                <button
+                  onClick={() => setShowColumnPicker((v) => !v)}
+                  className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-ink transition-colors hover:border-brand"
+                >
+                  {(() => {
+                    const col = columns.find((c) => c.id === detail?.task.column_id)
+                    return (
+                      <>
+                        <span
+                          className="h-2 w-2 flex-shrink-0 rounded-full"
+                          style={{ background: col?.color ?? '#6b7280' }}
+                        />
+                        <span className="flex-1 text-left">{col?.name ?? '—'}</span>
+                        <ChevronDown size={12} className="text-muted" />
+                      </>
+                    )
+                  })()}
+                </button>
+                {showColumnPicker && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowColumnPicker(false)} />
+                    <div className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-xl border border-border bg-surface shadow-lg">
+                      {columns.map((col) => (
+                        <button
+                          key={col.id}
+                          onClick={() => moveToColumn(col.id)}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink transition-colors hover:bg-surface-2"
+                        >
+                          <span
+                            className="h-2 w-2 flex-shrink-0 rounded-full"
+                            style={{ background: col.color ?? '#6b7280' }}
+                          />
+                          <span className="flex-1">{col.name}</span>
+                          {col.id === detail?.task.column_id && <Check size={12} className="text-brand" />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Due date */}
             <div className="flex items-center gap-2">
