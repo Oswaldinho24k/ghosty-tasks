@@ -15,6 +15,7 @@ type AgentEvent =
   | Extract<WwEvent, { t: 'agent:chunk' }>
   | Extract<WwEvent, { t: 'agent:tool' }>
   | Extract<WwEvent, { t: 'agent:done' }>
+  | Extract<WwEvent, { t: 'agent:turn' }>
 
 type Agent = { handle: string; name: string; avatar: string }
 
@@ -55,6 +56,26 @@ type Msg = {
   streaming: boolean
   created_tasks: Array<{ id: number; title: string; column_id: number }>
   tools?: Array<{ name: string; detail?: string }>
+}
+
+// Frases rotativas para el placeholder — cambian cada hora por proyecto
+const AGENT_HINTS = [
+  'Pídele a Ghosty algo…',
+  '¿Cuántas tareas están urgentes?',
+  'Crea el plan de lanzamiento',
+  '¿Qué está bloqueado?',
+  'Genera subtareas para la tarea X',
+  'Resume el estado del proyecto',
+  '¿Vamos a llegar al deadline?',
+  'Prioriza las tareas pendientes',
+  'Crea tareas para el MVP',
+]
+
+function agentHint(projectId: number): string {
+  const seed = `${projectId}·${Math.floor(Date.now() / 3_600_000)}`
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return AGENT_HINTS[h % AGENT_HINTS.length]
 }
 
 function stripJsonBlock(text: string): string {
@@ -172,8 +193,12 @@ export function AgentDrawer({
   )
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  // Turn tracking for stop button + elapsed timer
+  const [turnInfo, setTurnInfo] = useState<{ turnId: string; startedAt: number } | null>(null)
+  const [now, setNow] = useState(Date.now())
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const placeholder = agentHint(projectId)
 
   const colMap = new Map(columns.map(c => [c.id, c.name]))
   const current = agents.find((a) => a.handle === handle) ?? agents[0] ?? null
@@ -231,10 +256,24 @@ export function AgentDrawer({
     inputRef.current?.focus()
   }
 
+  // Tick every second while a turn is running
+  useEffect(() => {
+    if (!turnInfo) return
+    const iv = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(iv)
+  }, [turnInfo])
+
   // Register event handler with parent SSE
   const handleAgentRef = useRef<(ev: AgentEvent) => void>(() => {})
   handleAgentRef.current = useCallback((ev: AgentEvent) => {
-    if (ev.t === 'agent:chunk') {
+    if (ev.t === 'agent:turn') {
+      if (ev.state === 'running') {
+        setTurnInfo({ turnId: ev.turnId, startedAt: ev.startedAt })
+        setNow(Date.now())
+      } else {
+        setTurnInfo(null)
+      }
+    } else if (ev.t === 'agent:chunk') {
       setMessages(prev =>
         prev.map(m => m.id === ev.turnId ? { ...m, content: m.content + ev.value } : m)
       )
@@ -408,7 +447,15 @@ export function AgentDrawer({
         )
       )
       setBusy(false)
+      setTurnInfo(null)
     }
+  }
+
+  async function stop() {
+    if (!turnInfo) return
+    try {
+      await stopTurnFn({ data: { turnId: turnInfo.turnId } })
+    } catch {}
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -417,6 +464,8 @@ export function AgentDrawer({
       send()
     }
   }
+
+  const elapsed = turnInfo ? formatElapsed(now - turnInfo.startedAt) : ''
 
   return (
     <motion.div
@@ -585,6 +634,22 @@ export function AgentDrawer({
                 )}
 
               </div>
+
+              {/* Turn controls: elapsed + stop button */}
+              {msg.streaming && turnInfo?.turnId === msg.id && (
+                <div className="mt-1.5 flex items-center gap-2 px-1">
+                  <span className="tabular-nums text-[10px] text-muted opacity-70">{elapsed}</span>
+                  <button
+                    onClick={stop}
+                    title="Detener"
+                    className="flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted transition hover:border-red-400/40 hover:text-red-400"
+                  >
+                    <Square size={9} />
+                    Detener
+                  </button>
+                </div>
+              )}
+
               {msg.created_tasks.length > 0 && (
                 <div className="mt-2 flex flex-col gap-1">
                   <p className="text-[10px] font-medium text-muted px-1">

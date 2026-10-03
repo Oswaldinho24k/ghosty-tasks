@@ -132,6 +132,13 @@ export const moveTaskFn = createServerFn({ method: "POST" })
     await ops.moveTask(await getUserSub(), data);
   });
 
+export const moveTaskToColumnEndFn = createServerFn({ method: "POST" })
+  .validator((d: { id: number; project_id: number; column_id: number }) => d)
+  .handler(async ({ data }) => {
+    await ensureSchema();
+    return ops.moveTaskToColumn(await getUserSub(), data);
+  });
+
 export const deleteTaskFn = createServerFn({ method: "POST" })
   .validator((d: { id: number; project_id: number }) => d)
   .handler(async ({ data }) => {

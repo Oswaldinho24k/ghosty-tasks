@@ -14,9 +14,6 @@ export function TaskCard({
   onClick,
   onAskAgent,
   projectName,
-  draggable,
-  onDragStart,
-  onDragEnd,
   isDragging,
 }: {
   task: Task
@@ -25,9 +22,6 @@ export function TaskCard({
   /** Abre el chat con la referencia ya escrita: hablar de una tarjeta sin teclear su id. */
   onAskAgent?: (ref: string) => void
   projectName: string
-  draggable?: boolean
-  onDragStart?: (e: React.DragEvent) => void
-  onDragEnd?: () => void
   isDragging?: boolean
 }) {
   const { taskLabels, online, selectedTaskId, counts } = useProject()
@@ -45,9 +39,6 @@ export function TaskCard({
 
   return (
     <div
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
       onClick={onClick}
       className={`group relative overflow-hidden rounded-xl border bg-surface p-3 shadow-sm transition-all
         hover:shadow-md hover:border-brand/30 cursor-pointer select-none

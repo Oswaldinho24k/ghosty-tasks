@@ -416,6 +416,10 @@ function ProjectShell() {
             onTaskChanged={(id, patch) =>
               setTasks((prev) => prev.map((t) => (t.id === id ? ({ ...t, ...patch } as Task) : t)))
             }
+            columns={columns}
+            onColumnChange={(id, colId) =>
+              setTasks((prev) => prev.map((t) => (t.id === id ? ({ ...t, column_id: colId } as Task) : t)))
+            }
           />
         )}
         {settingsOpen && (
