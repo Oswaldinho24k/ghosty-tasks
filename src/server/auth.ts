@@ -86,7 +86,12 @@ export const completeGhostyLogin = createServerFn({ method: "POST" })
     const { membershipOf } = await import("./membership.server");
     const slug = await currentSlug();
     const m = await membershipOf(id.sub);
-    if (slug && !m.member) throw new Error("no eres miembro de este workspace");
+    // Sin acceso: la puerta necesita saber QUIÉN entró y a DÓNDE, para no dejar un callejón sin
+    // salida («Pedir acceso», «Usar otra cuenta»). Viaja como JSON en el mensaje del error, que es
+    // lo único que cruza la frontera del server fn.
+    if (slug && !m.member) {
+      throw new Error(`${NOT_MEMBER}${JSON.stringify({ email: id.email, slug, staff: m.staff === true, idp: IDP })}`);
+    }
 
     // Después del guard: crear las tablas es trabajo que no se le hace a un extraño.
     await (await import("./schema.server")).ensureSchema();
@@ -100,6 +105,33 @@ export const completeGhostyLogin = createServerFn({ method: "POST" })
     const s = await session();
     await s.update({ user });
     return { ok: true as const, user };
+  });
+
+/** Prefijo del error «no eres miembro» (lo lee la ruta /login para pintar la puerta). */
+export const NOT_MEMBER = "not_member:";
+
+/**
+ * «Pedir acceso» desde la puerta: la identidad la prueba el `payload` firmado por gs en el login
+ * (con 30 min de margen: la persona puede tardar en apretar el botón).
+ */
+export const requestAccess = createServerFn({ method: "POST" })
+  .validator((d: { payload: string; sig?: string }) => d)
+  .handler(async ({ data }) => {
+    const secret = process.env.GHOSTY_PARTNER_SECRET;
+    if (secret) {
+      const crypto = await import("node:crypto");
+      const expected = crypto.createHmac("sha256", secret).update(data.payload).digest("hex");
+      const a = Buffer.from(expected);
+      const b = Buffer.from(data.sig ?? "");
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) throw new Error("firma inválida");
+    }
+    const id = JSON.parse(Buffer.from(data.payload, "base64url").toString()) as { sub: string; ts: number };
+    if (Math.abs(Math.floor(Date.now() / 1000) - id.ts) > 30 * 60) throw new Error("La página caducó: vuelve a entrar.");
+    const { currentSlug } = await import("./tenant.server");
+    const slug = await currentSlug();
+    if (!slug) throw new Error("sin espacio");
+    const { requestWorkspaceAccess } = await import("./membership.server");
+    return requestWorkspaceAccess(id.sub, slug);
   });
 
 export const logout = createServerFn({ method: "POST" }).handler(async () => {

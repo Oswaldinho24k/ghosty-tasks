@@ -15,7 +15,8 @@ import { currentSlug } from "./tenant.server";
 const IDP = process.env.GHOSTY_IDENTITY_URL ?? "https://www.ghosty.studio";
 const TTL_MS = 60_000;
 
-export type Membership = { member: boolean; role: string | null };
+/** `staff` = staff de Ghosty (gs `User.isAdmin`): la puerta le ofrece «Entrar como soporte». */
+export type Membership = { member: boolean; role: string | null; staff?: boolean };
 
 const cache = new Map<string, { v: Membership; exp: number }>();
 const rosterCache = new Map<string, { v: RosterEntry[]; exp: number }>();
@@ -31,7 +32,7 @@ async function fetchMembership(sub: string, slug: string): Promise<Membership> {
   const r = await fetch(`${IDP}/internal/memberships?${q}`, { signal: AbortSignal.timeout(3000) });
   if (!r.ok) throw new Error(`membership ${r.status}`);
   const b = (await r.json()) as Membership;
-  return { member: !!b.member, role: b.role ?? null };
+  return { member: !!b.member, role: b.role ?? null, staff: b.staff === true };
 }
 
 /**
@@ -60,6 +61,20 @@ export async function membershipOf(sub: string): Promise<Membership> {
     }
     throw e;
   }
+}
+
+/**
+ * «Pedir acceso»: gs le avisa al dueño del espacio por correo (una vez cada 24 h por persona).
+ * Misma firma de partner que la membresía.
+ */
+export async function requestWorkspaceAccess(sub: string, slug: string): Promise<{ sent: boolean; already: boolean; reason?: string }> {
+  const ts = Math.floor(Date.now() / 1000);
+  const sig = sign(`${ts}.${sub}.${slug}`);
+  const q = new URLSearchParams({ sub, slug, ts: String(ts), sig, app: "Ghosty Tasks" });
+  const r = await fetch(`${IDP}/internal/access-requests?${q}`, { method: "POST", signal: AbortSignal.timeout(8000) });
+  const b = (await r.json().catch(() => ({}))) as { sent?: boolean; already?: boolean; reason?: string; error?: string };
+  if (!r.ok) throw new Error(b.error || `gs ${r.status}`);
+  return { sent: b.sent === true, already: b.already === true, reason: b.reason };
 }
 
 export type RosterEntry = { sub: string; role: string; email: string };
